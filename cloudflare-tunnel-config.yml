@@ -1,0 +1,28 @@
+tunnel: local-stream-server
+credentials-file: C:\Users\AMAL GEORGE\.cloudflared\tunnel-credentials.json
+
+# Ingress rules - order matters!
+ingress:
+  # Web interface - accessible via HTTPS
+  - hostname: stream.your-tunnel-url.com
+    service: http://localhost:8000
+    originRequest:
+      noTLSVerify: true
+  
+  # RTMP server - accessible via TCP for OBS
+  # This allows OBS to connect from anywhere
+  - hostname: rtmp.your-tunnel-url.com
+    service: tcp://localhost:1935
+  
+  # Media server for HLS streams
+  - hostname: media.your-tunnel-url.com
+    service: http://localhost:8080
+    originRequest:
+      noTLSVerify: true
+  
+  # Catch-all rule (required)
+  - service: http_status:404
+
+# Optional: Logging configuration
+# loglevel: info
+# logfile: cloudflared.log

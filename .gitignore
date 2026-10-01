@@ -1,0 +1,41 @@
+# Node modules
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env
+.env.local
+
+# Media files
+media/
+recordings/
+
+# Stream data
+stream-keys.json
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+*.log
+
+# Build outputs
+dist/
+build/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/

@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local Stream Server - YouTube Clone</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <i class="fas fa-bars menu-icon" onclick="toggleMobileSidebar()" aria-label="Toggle menu"></i>
+                <div class="logo">
+                    <i class="fas fa-play-circle"></i>
+                    <span>LocalStream</span>
+                </div>
+            </div>
+            <div class="header-center">
+                <div class="search-bar">
+                    <input type="text" placeholder="Search streams..." id="searchInput" aria-label="Search streams">
+                    <button aria-label="Search"><i class="fas fa-search"></i></button>
+                </div>
+            </div>
+            <div class="header-right">
+                <button class="btn-primary" onclick="showCreateStreamModal()" aria-label="Create new stream">
+                    <i class="fas fa-video"></i> <span>Create Stream</span>
+                </button>
+                <button class="btn-icon" onclick="showServerInfo()" aria-label="Server information">
+                    <i class="fas fa-info-circle"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <div class="sidebar-section">
+                    <a href="#" class="sidebar-item active" onclick="showTab('live')">
+                        <i class="fas fa-broadcast-tower"></i>
+                        <span>Live Streams</span>
+                    </a>
+                    <a href="#" class="sidebar-item" onclick="showTab('all')">
+                        <i class="fas fa-list"></i>
+                        <span>All Stream Keys</span>
+                    </a>
+                    <a href="#" class="sidebar-item" onclick="showTab('stats')">
+                        <i class="fas fa-chart-line"></i>
+                        <span>Statistics</span>
+                    </a>
+                </div>
+                <hr>
+                <div class="sidebar-section">
+                    <div class="sidebar-title">Server Info</div>
+                    <div class="info-item">
+                        <small>RTMP Port</small>
+                        <div id="rtmpPort">1935</div>
+                    </div>
+                    <div class="info-item">
+                        <small>Active Streams</small>
+                        <div id="activeCount">0</div>
+                    </div>
+                    <div class="info-item">
+                        <small>Total Keys</small>
+                        <div id="totalKeys">0</div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Content Area -->
+            <div class="content">
+                <!-- Live Streams Tab -->
+                <div id="liveTab" class="tab-content">
+                    <h2>🔴 Live Now</h2>
+                    <div id="liveStreams" class="streams-grid">
+                        <div class="no-streams">
+                            <i class="fas fa-video-slash"></i>
+                            <p>No live streams at the moment</p>
+                            <button class="btn-primary" onclick="showCreateStreamModal()">
+                                Create Your First Stream
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- All Streams Tab -->
+                <div id="allTab" class="tab-content" style="display: none;">
+                    <h2>All Stream Keys</h2>
+                    <div id="allStreams" class="streams-list">
+                        <div class="no-streams">
+                            <i class="fas fa-key"></i>
+                            <p>No stream keys created yet</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stats Tab -->
+                <div id="statsTab" class="tab-content" style="display: none;">
+                    <h2>Server Statistics</h2>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <i class="fas fa-broadcast-tower"></i>
+                            <div class="stat-value" id="statActiveStreams">0</div>
+                            <div class="stat-label">Active Streams</div>
+                        </div>
+                        <div class="stat-card">
+                            <i class="fas fa-key"></i>
+                            <div class="stat-value" id="statTotalKeys">0</div>
+                            <div class="stat-label">Total Stream Keys</div>
+                        </div>
+                        <div class="stat-card">
+                            <i class="fas fa-clock"></i>
+                            <div class="stat-value" id="statUptime">0h 0m</div>
+                            <div class="stat-label">Server Uptime</div>
+                        </div>
+                        <div class="stat-card">
+                            <i class="fas fa-signal"></i>
+                            <div class="stat-value" id="statAvgBitrate">0 kbps</div>
+                            <div class="stat-label">Avg Bitrate</div>
+                        </div>
+                    </div>
+                    
+                    <!-- YouTube Studio-like Health Dashboard -->
+                    <div id="healthDashboard" style="margin-top: 30px; display: none;">
+                        <h3>Stream Health (YouTube Studio Style)</h3>
+                        <div class="youtube-health-panel">
+                            <div class="health-status-bar">
+                                <div class="health-indicator" id="healthIndicator">
+                                    <i class="fas fa-circle"></i>
+                                    <span id="healthStatus">Excellent</span>
+                                </div>
+                                <div class="health-message" id="healthMessage">
+                                    Your stream is looking great!
+                                </div>
+                            </div>
+                            
+                            <div class="health-metrics-grid">
+                                <div class="health-metric-card">
+                                    <div class="metric-icon">
+                                        <i class="fas fa-tachometer-alt"></i>
+                                    </div>
+                                    <div class="metric-content">
+                                        <div class="metric-label">Bitrate</div>
+                                        <div class="metric-value" id="healthBitrate">0 kbps</div>
+                                        <div class="metric-status" id="bitrateStatus">Good</div>
+                                    </div>
+                                </div>
+                                
+                                <div class="health-metric-card">
+                                    <div class="metric-icon">
+                                        <i class="fas fa-film"></i>
+                                    </div>
+                                    <div class="metric-content">
+                                        <div class="metric-label">Frame Rate</div>
+                                        <div class="metric-value" id="healthFps">0 fps</div>
+                                        <div class="metric-status" id="fpsStatus">Good</div>
+                                    </div>
+                                </div>
+                                
+                                <div class="health-metric-card">
+                                    <div class="metric-icon">
+                                        <i class="fas fa-exclamation-triangle"></i>
+                                    </div>
+                                    <div class="metric-content">
+                                        <div class="metric-label">Dropped Frames</div>
+                                        <div class="metric-value" id="healthDropped">0</div>
+                                        <div class="metric-status" id="droppedStatus">Good</div>
+                                    </div>
+                                </div>
+                                
+                                <div class="health-metric-card">
+                                    <div class="metric-icon">
+                                        <i class="fas fa-network-wired"></i>
+                                    </div>
+                                    <div class="metric-content">
+                                        <div class="metric-label">Connection</div>
+                                        <div class="metric-value" id="healthConnection">Stable</div>
+                                        <div class="metric-status" id="connectionStatus">Good</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Stream Modal -->
+    <div id="createStreamModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Create New Stream</h3>
+                <button class="close-btn" onclick="hideCreateStreamModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Stream Title</label>
+                    <input type="text" id="streamTitle" placeholder="e.g., Test Stream #1" class="input">
+                </div>
+                
+                <!-- YouTube-like Stream Settings Preset -->
+                <div class="form-group">
+                    <label>Stream Quality Preset (YouTube Recommendations)</label>
+                    <select id="streamPreset" class="input" onchange="updatePresetInfo()">
+                        <option value="">Select preset...</option>
+                        <option value="1080p60">1080p60 - 6000 kbps (Best Quality)</option>
+                        <option value="1080p30">1080p30 - 4500 kbps (High Quality)</option>
+                        <option value="720p60">720p60 - 4500 kbps (Smooth)</option>
+                        <option value="720p30">720p30 - 2500 kbps (Balanced)</option>
+                        <option value="480p30">480p30 - 1500 kbps (Low Bandwidth)</option>
+                        <option value="custom">Custom Settings</option>
+                    </select>
+                </div>
+                
+                <div id="presetInfo" class="alert alert-info" style="display: none; margin-top: 10px;">
+                    <i class="fas fa-info-circle"></i>
+                    <div id="presetDetails"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="hideCreateStreamModal()">Cancel</button>
+                <button class="btn-primary" onclick="createStream()">Generate Stream Key</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stream Details Modal -->
+    <div id="streamDetailsModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h3 id="detailsTitle">Stream Details</h3>
+                <button class="close-btn" onclick="hideStreamDetailsModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="detail-section">
+                    <label>RTMP Server URL</label>
+                    <div class="copy-field">
+                        <input type="text" id="detailsRtmpUrl" readonly class="input">
+                        <button onclick="copyToClipboard('detailsRtmpUrl')" class="btn-icon" aria-label="Copy RTMP URL">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                    </div>
+                    <small style="color: var(--text-secondary); display: block; margin-top: 5px;">
+                        Same format as YouTube Live: rtmp://server/application
+                    </small>
+                </div>
+                <div class="detail-section">
+                    <label>Stream Key (Like YouTube Live)</label>
+                    <div class="copy-field">
+                        <input type="text" id="detailsStreamKey" readonly class="input">
+                        <button onclick="copyToClipboard('detailsStreamKey')" class="btn-icon" aria-label="Copy stream key">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                    </div>
+                    <small style="color: var(--text-secondary); display: block; margin-top: 5px;">
+                        <i class="fas fa-lock"></i> Keep this secret! Anyone with this key can stream to your server.
+                    </small>
+                </div>
+                <div class="detail-section">
+                    <label>Playback URL (HLS)</label>
+                    <div class="copy-field">
+                        <input type="text" id="detailsPlaybackUrl" readonly class="input">
+                        <button onclick="copyToClipboard('detailsPlaybackUrl')" class="btn-icon" aria-label="Copy playback URL">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- YouTube-like recommended settings -->
+                <div id="recommendedSettings" class="alert alert-info" style="margin-top: 15px;">
+                    <i class="fas fa-lightbulb"></i>
+                    <div>
+                        <strong>Recommended OBS Settings (YouTube Standard):</strong>
+                        <ul style="margin: 8px 0 0 20px; padding: 0;">
+                            <li><strong>Encoder:</strong> x264 or NVENC H.264</li>
+                            <li><strong>Rate Control:</strong> CBR (Constant Bitrate)</li>
+                            <li><strong>Bitrate:</strong> 2500-6000 kbps</li>
+                            <li><strong>Keyframe Interval:</strong> 2 seconds</li>
+                            <li><strong>Preset:</strong> veryfast to medium</li>
+                            <li><strong>Profile:</strong> high</li>
+                            <li><strong>Tune:</strong> zerolatency</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i>
+                    <div>
+                        <strong>OBS Studio Setup:</strong>
+                        <ol>
+                            <li>Open OBS Studio</li>
+                            <li>Go to Settings → Stream</li>
+                            <li>Service: Custom</li>
+                            <li>Server: Copy the RTMP Server URL above</li>
+                            <li>Stream Key: Copy the Stream Key above</li>
+                            <li>Click OK and Start Streaming!</li>
+                        </ol>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="hideStreamDetailsModal()">Close</button>
+                <button class="btn-danger" onclick="deleteCurrentStream()">
+                    <i class="fas fa-trash"></i> Delete Stream Key
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Server Info Modal -->
+    <div id="serverInfoModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Server Information</h3>
+                <button class="close-btn" onclick="hideServerInfoModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="info-grid">
+                    <div class="info-row">
+                        <span>Local IP:</span>
+                        <strong id="infoLocalIP">-</strong>
+                    </div>
+                    <div class="info-row">
+                        <span>RTMP Port:</span>
+                        <strong id="infoRtmpPort">-</strong>
+                    </div>
+                    <div class="info-row">
+                        <span>HTTP Port:</span>
+                        <strong id="infoHttpPort">-</strong>
+                    </div>
+                    <div class="info-row">
+                        <span>Media Port:</span>
+                        <strong id="infoMediaPort">-</strong>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="hideServerInfoModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Video Player Modal -->
+    <div id="videoPlayerModal" class="modal">
+        <div class="modal-content modal-video">
+            <div class="modal-header">
+                <h3 id="playerTitle">Live Stream</h3>
+                <button class="close-btn" onclick="hideVideoPlayer()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <video id="videoPlayer" class="video-player" controls autoplay muted></video>
+                <div class="stream-stats-overlay" id="streamStatsOverlay">
+                    <div class="stat-item">
+                        <i class="fas fa-signal"></i>
+                        <span id="playerBitrate">0 kbps</span>
+                    </div>
+                    <div class="stat-item">
+                        <i class="fas fa-film"></i>
+                        <span id="playerFps">0 fps</span>
+                    </div>
+                    <div class="stat-item">
+                        <i class="fas fa-expand"></i>
+                        <span id="playerResolution">0x0</span>
+                    </div>
+                    <div class="stat-item">
+                        <i class="fas fa-clock"></i>
+                        <span id="playerDuration">0s</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
