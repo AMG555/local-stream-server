@@ -53,6 +53,14 @@
                         <i class="fas fa-chart-line"></i>
                         <span>Statistics</span>
                     </a>
+                    <a href="#" class="sidebar-item" onclick="showTab('recordings', this)">
+                        <i class="fas fa-circle"></i>
+                        <span>Recordings</span>
+                    </a>
+                    <a href="#" class="sidebar-item" onclick="showTab('apikeys', this)">
+                        <i class="fas fa-key"></i>
+                        <span>API Keys</span>
+                    </a>
                 </div>
                 <hr>
                 <div class="sidebar-section">
@@ -184,6 +192,56 @@
                                     </div>
                                 </div>
                             </div>
+            
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recordings Tab -->
+                <div id="recordingsTab" class="tab-content" style="display: none;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
+                        <h2>🔴 Recordings</h2>
+                        <button class="btn-secondary btn-sm" onclick="loadRecordings()">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </button>
+                    </div>
+                    <div id="recordingsList">
+                        <div class="no-streams"><i class="fas fa-film"></i><p>No recordings yet</p></div>
+                    </div>
+                    <div style="margin-top:20px; padding:14px; background:var(--surface); border-radius:8px; font-size:13px; color:var(--text-secondary);">
+                        <i class="fas fa-info-circle"></i>
+                        Recordings are saved as <code>.mp4</code> to the <code>recordings/</code> folder.
+                        Start a recording from a live stream using the <strong>record button</strong> in the player.
+                        Requires FFmpeg.
+                    </div>
+                </div>
+
+                <!-- API Keys Tab -->
+                <div id="apikeysTab" class="tab-content" style="display: none;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
+                        <h2>🔑 API Keys</h2>
+                        <button class="btn-primary btn-sm" onclick="showCreateKeyModal()">
+                            <i class="fas fa-plus"></i> New Key
+                        </button>
+                    </div>
+                    <div class="alert alert-info" style="margin-bottom:16px;">
+                        <i class="fas fa-shield-alt"></i>
+                        <div>API keys protect all stream management endpoints.
+                        Include them as <code>Authorization: Bearer YOUR_KEY</code> in API requests.
+                        The Dashboard key is auto-stored in your browser.</div>
+                    </div>
+                    <div id="apiKeysList">
+                        <div class="no-streams"><i class="fas fa-key"></i><p>Loading...</p></div>
+                    </div>
+                    <div style="margin-top:20px;">
+                        <h3 style="margin-bottom:12px;">Export Analytics</h3>
+                        <div style="display:flex; gap:12px;">
+                            <a href="/api/streams/export?format=json" id="exportJsonLink" class="btn-secondary" download>
+                                <i class="fas fa-download"></i> Export JSON
+                            </a>
+                            <a href="/api/streams/export?format=csv" id="exportCsvLink" class="btn-secondary" download>
+                                <i class="fas fa-file-csv"></i> Export CSV
+                            </a>
                         </div>
                     </div>
                 </div>
@@ -353,7 +411,29 @@
                 <button class="close-btn" onclick="hideVideoPlayer()">&times;</button>
             </div>
             <div class="modal-body">
+                <!-- Player mode switcher -->
+                <div class="player-mode-bar" id="playerModeBar">
+                    <button class="player-mode-btn active" id="modeBtnHls" onclick="switchPlayerMode('hls', this)">
+                        <i class="fas fa-tv"></i> HLS <small>~2s</small>
+                    </button>
+                    <button class="player-mode-btn" id="modeBtnWs" onclick="switchPlayerMode('ws', this)">
+                        <i class="fas fa-bolt"></i> WebSocket <small>~300ms</small>
+                    </button>
+                    <button class="player-mode-btn" id="modeBtnWebrtc" onclick="switchPlayerMode('webrtc', this)">
+                        <i class="fas fa-rocket"></i> WebRTC <small>~50ms</small>
+                    </button>
+                    <!-- Record button -->
+                    <button class="player-mode-btn record-btn" id="recordBtn" onclick="toggleRecording()" style="margin-left:auto; background:transparent; border-color:rgba(255,60,60,0.4);" title="Record stream to disk (requires FFmpeg)">
+                        <i class="fas fa-circle" style="color:#f44;"></i> Record
+                    </button>
+                </div>
+
                 <video id="videoPlayer" class="video-player" controls autoplay muted></video>
+                <!-- WebRTC video element (hidden by default) -->
+                <video id="webrtcPlayer" class="video-player" autoplay playsinline style="display:none;"></video>
+                <!-- WebSocket canvas fallback -->
+                <canvas id="wsCanvas" class="video-player" style="display:none;"></canvas>
+
                 <!-- YouTube-style "Go Live" button -->
                 <button id="goLiveBtn" class="go-live-btn" onclick="seekToLive()" style="display: none;">
                     <i class="fas fa-dot-circle"></i> GO LIVE
@@ -385,7 +465,40 @@
         </div>
     </div>
 
+    <!-- Create API Key Modal -->
+    <div id="createKeyModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Create API Key</h3>
+                <button class="close-btn" onclick="hideCreateKeyModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Key Name (for your reference)</label>
+                    <input type="text" id="newKeyName" placeholder="e.g., OBS Plugin, Remote App" class="input" maxlength="80">
+                </div>
+                <div id="newKeyResult" style="display:none; margin-top:14px;">
+                    <div class="alert" style="background:rgba(34,197,94,0.1); border-color:rgba(34,197,94,0.3);">
+                        <i class="fas fa-check-circle" style="color:#22c55e;"></i>
+                        <div>
+                            <strong>Key created! Copy it now — it won't be shown again.</strong>
+                            <div class="copy-field" style="margin-top:10px;">
+                                <input type="text" id="newKeyValue" readonly class="input" style="font-family:monospace; font-size:12px;">
+                                <button onclick="copyToClipboard('newKeyValue')" class="btn-icon"><i class="fas fa-copy"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="hideCreateKeyModal()">Close</button>
+                <button class="btn-primary" id="createKeyBtn" onclick="createAPIKey(this)">Generate Key</button>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flv.js@latest/dist/flv.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <script src="app.js"></script>
 </body>

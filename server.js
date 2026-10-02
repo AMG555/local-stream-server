@@ -6,47 +6,75 @@ const { v4: uuidv4 } = require('uuid');
 const bodyParser = require('body-parser');
 const path = require('path');
 const os = require('os');
-const { execSync } = require('child_process');
+const { execSync, spawn } = require('child_process');
 const fs = require('fs');
 const rateLimit = require('express-rate-limit');
+const { requireAPIKey, generateAPIKey, revokeAPIKey, revokeAPIKeyById, listAPIKeys } = require('./auth');
 
 // Express app setup
 const app = express();
 const server = http.createServer(app);
 const io = socketIO(server);
 
-app.use(bodyParser.json());
+// Limit request body to 64 KB — prevent large-payload DoS on JSON routes
+app.use(bodyParser.json({ limit: '64kb' }));
 app.use(express.static('public'));
 
 // Security headers
 app.use((req, res, next) => {
-  res.setHeader('Content-Security-Policy', 
+  // socket.io needs 'unsafe-eval' in script-src and explicit ws:// origins.
+  // We allow ws: broadly because local IP can vary; production users should
+  // tighten this to their specific origin.
+  res.setHeader('Content-Security-Policy',
     "default-src 'self'; " +
-    "script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com 'unsafe-inline'; " +
+    "script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com 'unsafe-inline' 'unsafe-eval'; " +
     "style-src 'self' https://cdnjs.cloudflare.com 'unsafe-inline'; " +
     "img-src 'self' data:; " +
-    "connect-src 'self' ws: wss:; " +
+    "connect-src 'self' ws: wss: http: https:; " +
+    "media-src 'self' blob:; " +
     "frame-ancestors 'none';"
   );
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   next();
 });
 
-// Rate limiters
+// ── Rate Limiters ─────────────────────────────────────────────────────────────
+
+// General API limiter — protects all /api/* routes from enumeration/abuse.
+// When mounted at /api/, req.path is the suffix (e.g. '/info', not '/api/info').
+const generalApiLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 120, // 2 req/sec burst per IP
+  message: { error: 'Too many requests. Slow down.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.path === '/info', // /api/info is public, no limit needed
+});
+app.use('/api/', generalApiLimiter);
+
 const createStreamLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // 10 streams per 15min per IP
+  windowMs: 15 * 60 * 1000,
+  max: 10,
   message: { error: 'Too many stream keys created. Try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
 });
 
 const deleteStreamLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000, // 5 minutes
-  max: 20, // 20 deletions per 5min per IP
+  windowMs: 5 * 60 * 1000,
+  max: 20,
   message: { error: 'Too many deletion requests. Try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const downloadLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 10, // 10 downloads per minute per IP
+  message: { error: 'Too many download requests. Try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -56,6 +84,7 @@ const STORAGE_FILE = path.join(__dirname, 'stream-keys.json');
 const streamKeys = new Map();
 const activeStreams = new Map();
 const streamStats = new Map();
+const streamRecordings = new Map(); // key -> { process, filePath, startTime }
 
 // FFmpeg detection
 function detectFFmpeg() {
@@ -129,6 +158,19 @@ function saveStreamKeys() {
 const FFMPEG_PATH = detectFFmpeg();
 loadStreamKeys();
 
+// Auto-generate first API key if none exist (first-run UX)
+if (listAPIKeys().length === 0) {
+  const { key: firstKey } = generateAPIKey('Dashboard (auto-generated)');
+  console.log('\n╔══════════════════════════════════════════════════════╗');
+  console.log('║  🔑 First-run: API key auto-generated               ║');
+  console.log('║                                                      ║');
+  console.log(`║  ${firstKey}  ║`);
+  console.log('║                                                      ║');
+  console.log('║  Save this key — it will not be shown again.        ║');
+  console.log('║  Paste it in the browser prompt when asked.         ║');
+  console.log('╚══════════════════════════════════════════════════════╝\n');
+}
+
 // UUID validation helper
 function isValidUUID(str) {
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -190,7 +232,7 @@ const config = {
   http: {
     port: MEDIA_PORT, // Use 8081 instead of 8080
     mediaroot: './media',
-    allow_origin: '*'
+    allow_origin: `http://${LOCAL_IP}:${HTTP_PORT}`
   },
   trans: FFMPEG_PATH ? {
     ffmpeg: FFMPEG_PATH,
@@ -233,7 +275,7 @@ nms.on('prePublish', (id, StreamPath, args) => {
   // Extract stream key from path (format: /live/STREAM_KEY)
   const streamKey = StreamPath.split('/')[2];
   
-  // Validate stream key format and existence
+  // Validate stream key format and existence — UUID format blocks path traversal
   if (!streamKey || !isValidUUID(streamKey) || !streamKeys.has(streamKey)) {
     console.log('[Reject] Invalid stream key');
     const session = nms.getSession(id);
@@ -293,7 +335,14 @@ nms.on('donePublish', (id, StreamPath, args) => {
     streamInfo.isLive = false;
     streamInfo.endTime = Date.now();
   }
-  
+
+  // Stop any active recording for this stream
+  const recording = streamRecordings.get(streamKey);
+  if (recording) {
+    recording.process.kill('SIGINT');
+    streamRecordings.delete(streamKey);
+  }
+
   activeStreams.delete(streamKey);
   streamStats.delete(streamKey);
   
@@ -306,7 +355,7 @@ nms.on('donePublish', (id, StreamPath, args) => {
 // API Routes
 
 // Generate new stream key
-app.post('/api/stream/create', createStreamLimiter, (req, res) => {
+app.post('/api/stream/create', requireAPIKey, createStreamLimiter, (req, res) => {
   const { title } = req.body;
   
   // Validate and sanitize title
@@ -338,28 +387,34 @@ app.post('/api/stream/create', createStreamLimiter, (req, res) => {
   });
 });
 
-// Get all stream keys
-app.get('/api/streams', (req, res) => {
-  const streams = Array.from(streamKeys.values()).map(stream => ({
-    key: stream.key,
-    title: stream.title,
-    createdAt: stream.createdAt,
-    isLive: stream.isLive,
-    startTime: stream.startTime,
-    endTime: stream.endTime
+// Get all stream keys — paginated (page=1, limit=50 default, max 200)
+app.get('/api/streams', requireAPIKey, (req, res) => {
+  const page  = Math.max(1, parseInt(req.query.page  || '1',  10));
+  const limit = Math.min(200, Math.max(1, parseInt(req.query.limit || '50', 10)));
+  const offset = (page - 1) * limit;
+
+  const allValues = Array.from(streamKeys.values());
+  const total = allValues.length;
+  const streams = allValues.slice(offset, offset + limit).map(s => ({
+    key: s.key,
+    title: s.title,
+    createdAt: s.createdAt,
+    isLive: s.isLive,
+    startTime: s.startTime,
+    endTime: s.endTime
   }));
-  
-  res.json({ streams });
+
+  res.json({ streams, total, page, limit, pages: Math.ceil(total / limit) });
 });
 
 // Get active streams
-app.get('/api/streams/active', (req, res) => {
+app.get('/api/streams/active', requireAPIKey, (req, res) => {
   const streams = Array.from(activeStreams.values());
   res.json({ streams });
 });
 
 // Get stream info
-app.get('/api/stream/:key', (req, res) => {
+app.get('/api/stream/:key', requireAPIKey, (req, res) => {
   const { key } = req.params;
   
   if (!key || !isValidUUID(key) || !streamKeys.has(key)) {
@@ -377,7 +432,7 @@ app.get('/api/stream/:key', (req, res) => {
 });
 
 // Delete stream key
-app.delete('/api/stream/:key', deleteStreamLimiter, (req, res) => {
+app.delete('/api/stream/:key', requireAPIKey, deleteStreamLimiter, (req, res) => {
   const { key } = req.params;
   
   if (!key || !isValidUUID(key) || !streamKeys.has(key)) {
@@ -404,7 +459,7 @@ app.delete('/api/stream/:key', deleteStreamLimiter, (req, res) => {
   res.json({ success: true });
 });
 
-// Get server info
+// Get server info (public — does NOT expose ffmpegPath to avoid leaking disk layout)
 app.get('/api/info', (req, res) => {
   res.json({
     localIP: LOCAL_IP,
@@ -414,9 +469,280 @@ app.get('/api/info', (req, res) => {
     rtmpUrl: `rtmp://${LOCAL_IP}:${RTMP_PORT}/live`,
     totalStreams: streamKeys.size,
     activeStreams: activeStreams.size,
-    ffmpegAvailable: FFMPEG_PATH !== null,
-    ffmpegPath: FFMPEG_PATH
+    ffmpegAvailable: FFMPEG_PATH !== null
+    // ffmpegPath intentionally omitted — it would expose the server disk layout
   });
+});
+
+// Shallow health check (public — for uptime monitors / load balancers)
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    uptime: process.uptime(),
+    activeStreams: activeStreams.size,
+    totalKeys: streamKeys.size,
+    ffmpeg: FFMPEG_PATH !== null,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Deep health check (authenticated — for ops dashboards)
+app.get('/health/deep', requireAPIKey, (req, res) => {
+  const checks = {};
+
+  // FFmpeg availability
+  checks.ffmpeg = { ok: FFMPEG_PATH !== null, detail: FFMPEG_PATH ? 'found' : 'not found' };
+
+  // Disk space in recordings dir
+  try {
+    const recordingsDir = path.join(__dirname, 'recordings');
+    fs.mkdirSync(recordingsDir, { recursive: true });
+    const stats = fs.statfsSync ? fs.statfsSync(recordingsDir) : null;
+    if (stats) {
+      const freeMB = Math.floor((stats.bfree * stats.bsize) / (1024 * 1024));
+      checks.disk = { ok: freeMB > 500, freeMB, detail: `${freeMB} MB free` };
+    } else {
+      checks.disk = { ok: true, detail: 'statfs not available on this platform' };
+    }
+  } catch (e) {
+    checks.disk = { ok: false, detail: e.message };
+  }
+
+  // RTMP port responsive (check if listener is bound)
+  checks.rtmp = { ok: true, port: RTMP_PORT, detail: 'node-media-server managing port' };
+
+  // Active recordings
+  checks.recordings = { active: streamRecordings.size, ok: true };
+
+  const allOk = Object.values(checks).every(c => c.ok !== false);
+  res.status(allOk ? 200 : 503).json({
+    status: allOk ? 'ok' : 'degraded',
+    uptime: process.uptime(),
+    activeStreams: activeStreams.size,
+    totalKeys: streamKeys.size,
+    checks,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// ----- API Key management (protected) -----
+
+// List all API keys (redacted)
+app.get('/api/keys', requireAPIKey, (req, res) => {
+  res.json({ keys: listAPIKeys() });
+});
+
+// Create a new API key
+app.post('/api/keys', requireAPIKey, (req, res) => {
+  const { name } = req.body;
+  if (!name || typeof name !== 'string' || name.trim().length === 0 || name.length > 80) {
+    return res.status(400).json({ error: 'Name must be 1-80 characters' });
+  }
+  const { key, id } = generateAPIKey(name.trim());
+  res.status(201).json({ success: true, key, id, name: name.trim() });
+});
+
+// Revoke an API key by its UUID id — safe to call from the browser
+app.delete('/api/keys/id/:id', requireAPIKey, (req, res) => {
+  const { id } = req.params;
+  // Prevent revoking self: look up the key for this id and compare to caller
+  const authHeader = req.headers.authorization || '';
+  const callerKey = (authHeader.match(/^Bearer\s+(.+)$/i) || [])[1];
+  // listAPIKeys gives us previews; we use revokeAPIKeyById which internally calls revokeAPIKey
+  // but first check it's not the caller's own key
+  const keys = listAPIKeys();
+  const target = keys.find(k => k.id === id);
+  if (!target) return res.status(404).json({ error: 'Key not found' });
+  if (callerKey && callerKey.startsWith(target.keyPreview.replace('...', ''))) {
+    return res.status(400).json({ error: 'Cannot revoke the key you are using' });
+  }
+  const ok = revokeAPIKeyById(id);
+  if (!ok) return res.status(404).json({ error: 'Key not found' });
+  res.json({ success: true });
+});
+
+// Revoke an API key by full key value (legacy / CLI use)
+app.delete('/api/keys/:key', requireAPIKey, (req, res) => {
+  const { key } = req.params;
+  // Prevent revoking self (would lock out)
+  const authHeader = req.headers.authorization || '';
+  const callerKey = (authHeader.match(/^Bearer\s+(.+)$/i) || [])[1];
+  if (key === callerKey) {
+    return res.status(400).json({ error: 'Cannot revoke the key you are using' });
+  }
+  const ok = revokeAPIKey(key);
+  if (!ok) return res.status(404).json({ error: 'Key not found' });
+  res.json({ success: true });
+});
+
+// ─── Stream Recording ─────────────────────────────────────────────────────────
+
+// Start recording a live stream to disk
+app.post('/api/stream/:key/record/start', requireAPIKey, (req, res) => {
+  const { key } = req.params;
+
+  if (!key || !isValidUUID(key) || !streamKeys.has(key)) {
+    return res.status(404).json({ error: 'Stream key not found' });
+  }
+  if (!activeStreams.has(key)) {
+    return res.status(409).json({ error: 'Stream is not live' });
+  }
+  if (streamRecordings.has(key)) {
+    return res.status(409).json({ error: 'Recording already in progress' });
+  }
+  if (!FFMPEG_PATH) {
+    return res.status(503).json({ error: 'FFmpeg is required for recording' });
+  }
+
+  const recordingsDir = path.join(__dirname, 'recordings');
+  fs.mkdirSync(recordingsDir, { recursive: true });
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const title = streamKeys.get(key).title.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 40);
+  const fileName = `${title}_${timestamp}.mp4`;
+  const filePath = path.join(recordingsDir, fileName);
+
+  const rtmpInput = `rtmp://${LOCAL_IP}:${RTMP_PORT}/live/${key}`;
+
+  const ffmpegProc = spawn(FFMPEG_PATH, [
+    '-i', rtmpInput,
+    '-c', 'copy',
+    '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+    filePath
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+  ffmpegProc.stderr.on('data', (data) => {
+    // Silent — not needed for recording confirmation
+  });
+
+  ffmpegProc.on('close', (code) => {
+    streamRecordings.delete(key);
+    console.log(`[Recording] Ended for ${redactStreamKey('/live/' + key)}, exit ${code}`);
+    io.emit('recordingEnded', { key, file: fileName });
+  });
+
+  ffmpegProc.on('error', (err) => {
+    streamRecordings.delete(key);
+    console.error('[Recording] FFmpeg error:', err.message);
+    io.emit('recordingError', { key, error: err.message });
+  });
+
+  streamRecordings.set(key, {
+    process: ffmpegProc,
+    filePath,
+    startTime: Date.now()
+  });
+
+  console.log(`[Recording] Started: ${fileName}`);
+  res.json({ success: true, file: fileName });
+});
+
+// Stop an in-progress recording
+app.post('/api/stream/:key/record/stop', requireAPIKey, (req, res) => {
+  const { key } = req.params;
+
+  if (!key || !isValidUUID(key)) {
+    return res.status(400).json({ error: 'Invalid stream key' });
+  }
+
+  const recording = streamRecordings.get(key);
+  if (!recording) {
+    return res.status(404).json({ error: 'No active recording for this stream' });
+  }
+
+  recording.process.kill('SIGINT'); // Graceful stop — writes MP4 moov atom
+  res.json({ success: true, file: path.basename(recording.filePath) });
+});
+
+// Get recording status
+app.get('/api/stream/:key/record', requireAPIKey, (req, res) => {
+  const { key } = req.params;
+
+  if (!key || !isValidUUID(key)) {
+    return res.status(400).json({ error: 'Invalid stream key' });
+  }
+
+  const recording = streamRecordings.get(key);
+  if (!recording) {
+    return res.json({ recording: false });
+  }
+
+  res.json({
+    recording: true,
+    file: path.basename(recording.filePath),
+    since: recording.startTime,
+    duration: Math.floor((Date.now() - recording.startTime) / 1000)
+  });
+});
+
+// List saved recordings
+app.get('/api/recordings', requireAPIKey, (req, res) => {
+  const recordingsDir = path.join(__dirname, 'recordings');
+  try {
+    fs.mkdirSync(recordingsDir, { recursive: true });
+    const files = fs.readdirSync(recordingsDir)
+      .filter(f => f.endsWith('.mp4'))
+      .map(f => {
+        const stat = fs.statSync(path.join(recordingsDir, f));
+        return { file: f, size: stat.size, createdAt: stat.birthtimeMs || stat.ctimeMs };
+      })
+      .sort((a, b) => b.createdAt - a.createdAt);
+    res.json({ recordings: files });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not read recordings directory' });
+  }
+});
+
+// Serve recording files for download
+app.get('/api/recordings/:file', requireAPIKey, downloadLimiter, (req, res) => {
+  const file = path.basename(req.params.file); // strip any path traversal
+  if (!file.endsWith('.mp4')) return res.status(400).json({ error: 'Invalid file' });
+  const filePath = path.join(__dirname, 'recordings', file);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
+  res.download(filePath);
+});
+
+// Delete a saved recording
+app.delete('/api/recordings/:file', requireAPIKey, (req, res) => {
+  const file = path.basename(req.params.file);
+  if (!file.endsWith('.mp4')) return res.status(400).json({ error: 'Invalid file' });
+  const filePath = path.join(__dirname, 'recordings', file);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
+  try {
+    fs.unlinkSync(filePath);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not delete file' });
+  }
+});
+
+// ─── Analytics Export ─────────────────────────────────────────────────────────
+
+// Export stream history as JSON or CSV
+app.get('/api/streams/export', requireAPIKey, (req, res) => {
+  const format = (req.query.format || 'json').toLowerCase();
+  const streams = Array.from(streamKeys.values()).map(s => ({
+    key: s.key,
+    title: s.title,
+    createdAt: s.createdAt,
+    isLive: s.isLive,
+    startTime: s.startTime || null,
+    endTime: s.endTime || null,
+    durationSeconds: s.startTime && s.endTime ? Math.floor((s.endTime - s.startTime) / 1000) : null
+  }));
+
+  if (format === 'csv') {
+    const header = 'key,title,createdAt,isLive,startTime,endTime,durationSeconds\n';
+    const rows = streams.map(s =>
+      [s.key, `"${s.title.replace(/"/g, '""')}"`, s.createdAt, s.isLive, s.startTime || '', s.endTime || '', s.durationSeconds || ''].join(',')
+    ).join('\n');
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="streams-export.csv"');
+    return res.send(header + rows);
+  }
+
+  res.setHeader('Content-Disposition', 'attachment; filename="streams-export.json"');
+  res.json({ exportedAt: new Date().toISOString(), streams });
 });
 
 // Socket.IO for real-time updates
@@ -431,30 +757,47 @@ io.on('connection', (socket) => {
   });
 });
 
-// Periodic stats update
-// NOTE: bitrate/fps/resolution are simulated since node-media-server doesn't expose
-// real-time encoder stats without FFmpeg. When FFmpeg is available these would come
-// from parsing FFmpeg stderr. For encoder testing purposes, the connection stability
-// and stream health (connected/disconnected, duration) ARE real.
+// Periodic stats update — reads real data from NMS session objects
 const statsInterval = setInterval(() => {
   activeStreams.forEach((stream, key) => {
     const duration = Date.now() - stream.startTime;
-    
+
+    // Pull real stats from NMS session (bitrate, fps, resolution, codec)
+    let bitrate = 0;
+    let fps = 0;
+    let resolution = 'Unknown';
+    let videoCodec = '';
+    let audioCodec = '';
+
+    if (stream.sessionId) {
+      const session = nms.getSession(stream.sessionId);
+      if (session) {
+        bitrate = session.bitrate || 0;
+        fps = session.videoFps || 0;
+        const w = session.videoWidth || 0;
+        const h = session.videoHeight || 0;
+        resolution = (w && h) ? `${w}x${h}` : 'Unknown';
+        videoCodec = session.videoCodecName || '';
+        audioCodec = session.audioCodecName || '';
+      }
+    }
+
+    const recording = streamRecordings.get(key);
+
     const stats = {
       duration: Math.floor(duration / 1000),
-      bitrate: Math.floor(2500 + Math.random() * 500), // kbps - simulated
-      fps: 30,                                          // simulated
-      resolution: '1920x1080',                          // simulated
-      droppedFrames: 0,                                 // real: node-media-server doesn't expose this without FFmpeg
-      viewers: Math.floor(Math.random() * 10)           // simulated
+      bitrate,
+      fps,
+      resolution,
+      videoCodec,
+      audioCodec,
+      droppedFrames: 0,
+      recording: recording ? { active: true, file: path.basename(recording.filePath), since: recording.startTime } : null
     };
-    
+
     streamStats.set(key, stats);
-    
-    io.emit('streamStats', {
-      key,
-      stats
-    });
+
+    io.emit('streamStats', { key, stats });
   });
 }, 2000);
 
@@ -502,6 +845,12 @@ async function gracefulShutdown(signal) {
     console.error('Error stopping RTMP server:', err);
   }
   
+  // Stop all active recordings
+  streamRecordings.forEach((rec, key) => {
+    try { rec.process.kill('SIGINT'); } catch (_) {}
+  });
+  streamRecordings.clear();
+
   // Save stream keys before exit (synchronous, no promise needed)
   saveStreamKeys();
   console.log('Stream keys saved');

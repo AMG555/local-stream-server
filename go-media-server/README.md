@@ -1,221 +1,102 @@
-# Go Media Server
+# Go Media Server — Phase 2 ✅
 
-Ultra-low latency streaming server written in Go with RTMP, SRT, WebSocket, and WebRTC support.
+Ultra-low-latency media backend for the Local Stream Server.
+Handles RTMP ingest and distributes media to WebSocket and WebRTC viewers.
 
-## Features
+## Status
 
-- **RTMP Ingestion** (Port 1935) - Compatible with OBS, vMix, Wirecast
-- **SRT Ingestion** (Port 8554) - Low-latency UDP transport (120ms default)
-- **WebSocket Streaming** (Port 8084/ws) - 0.3-0.8s latency with MSE
-- **WebRTC** (Port 8084/webrtc) - 0.05-0.3s latency (peer-to-peer)
-- **REST API** (Port 8084) - Stream state and health monitoring
+| Component | Status | Notes |
+|-----------|--------|-------|
+| RTMP listener | ✅ Working | Full protocol via `yutopp/go-rtmp`; validates stream keys; fan-out to WebSocket/WebRTC consumers |
+| WebSocket server | ✅ Working | Per-connection subscription with proper unsubscribe on disconnect |
+| WebRTC signaling | ✅ Working | SDP offer/answer; per-peer ICE; multiple simultaneous viewers supported |
+| REST API | ✅ Working | `/streams`, `/health`, `/streams/{key}` |
+| Stream manager | ✅ Working | Thread-safe; consumer IDs with unsubscribe; copy-on-broadcast (no lock held during I/O) |
+| SRT listener | ⚠️ Skeleton | Listens on UDP but SRT protocol not implemented |
+| Config loading | ✅ Working | `config.yml` |
+| Graceful shutdown | ✅ Working | SIGTERM/SIGINT |
+
+## Building
+
+Go 1.21+ required.
+
+```bash
+cd go-media-server
+go mod tidy      # downloads yutopp/go-rtmp, pion/webrtc, gorilla/websocket
+go build -o go-media-server.exe .
+.\go-media-server.exe
+```
+
+Or from the project root:
+```bash
+npm run go:build   # runs the above
+npm run go:run     # go run . inside go-media-server/
+```
+
+## Configuration (`config.yml`)
+
+```yaml
+rtmp:
+  port: 1935        # RTMP ingest (matches Node.js)
+  chunk_size: 4096
+  gop_cache: true
+  ping_timeout: 60
+
+srt:
+  port: 8554        # UDP (skeleton only)
+  latency: 120      # ms
+
+api:
+  port: 8084        # HTTP: /streams, /health, /ws, /webrtc/*
+  host: "0.0.0.0"
+```
 
 ## Architecture
 
 ```
 OBS/Encoder
     │
-    ├─ RTMP (:1935) ──┐
-    │                 │
-    └─ SRT  (:8554) ──┤
-                      │
-                      ▼
-              Go Media Server
-                      │
-                      ├─ WebSocket ──▶ Browser (MSE player)
-                      ├─ WebRTC ─────▶ Browser (native)
-                      └─ REST API ───▶ Node.js UI
-```
+    ├─ RTMP (:1935) ─────► Go RTMP Server
+    │                           │
+    │                           ├─ BroadcastVideo/Audio
+    │                           │
+    │                  ┌────────┴──────────┐
+    │                  │                   │
+    │            WebSocket              WebRTC
+    │         (:8084/ws)          (:8084/webrtc/*)
+    │               │                    │
+    │           Browser (MSE)      Browser (native)
+    │           ~300ms latency      ~50ms latency
+    │
+    └─ REST API (:8084) ──► Node.js dashboard + health
 
-## Quick Start
-
-### 1. Start the Server
-
-```bash
-cd go-media-server
-.\go-media-server.exe
-```
-
-### 2. Configure OBS
-
-**For RTMP:**
-```
-Server: rtmp://localhost:1935/live
-Stream Key: your-stream-key
-```
-
-**For SRT (ultra-low latency):**
-```
-Server: srt://localhost:8554
-Stream Key: streamid=your-stream-key
-```
-
-### 3. Watch the Stream
-
-**WebSocket (MSE):**
-```javascript
-ws://localhost:8084/ws?key=your-stream-key
-```
-
-**WebRTC:**
-```javascript
-POST http://localhost:8084/webrtc/offer?key=your-stream-key
-```
-
-## Configuration
-
-Edit `config.yml`:
-
-```yaml
-rtmp:
-  port: 1935
-  chunk_size: 4096
-  gop_cache: true
-
-srt:
-  port: 8554
-  latency: 120  # milliseconds
-
-api:
-  port: 8084
-  host: "0.0.0.0"
-```
-
-## API Endpoints
-
-### Health Check
-```
-GET /health
-```
-
-### List Active Streams
-```
-GET /streams
-```
-
-### Stream Details
-```
-GET /streams/{key}
-```
-
-### WebSocket Upgrade
-```
-WS /ws?key={stream-key}
-```
-
-### WebRTC Offer
-```
-POST /webrtc/offer?key={stream-key}
-Content-Type: application/json
-
-{
-  "type": "offer",
-  "sdp": "..."
-}
-```
-
-### WebRTC ICE Candidate
-```
-POST /webrtc/candidate?key={stream-key}
-Content-Type: application/json
-
-{
-  "candidate": "...",
-  "sdpMid": "...",
-  "sdpMLineIndex": 0
-}
+Node.js server (port 1935, 8000, 8081) continues to handle
+HLS transcoding via FFmpeg for the standard ~2s latency path.
 ```
 
 ## Latency Comparison
 
-| Protocol | Expected Latency | Best For |
-|----------|------------------|----------|
-| RTMP → HLS | 1.5-2.5s | Compatibility |
-| SRT → WebSocket | 0.3-0.8s | Low latency |
-| SRT → WebRTC | 0.05-0.3s | Ultra-low latency |
+| Path | Latency | Requires Go server |
+|------|---------|--------------------|
+| RTMP → FFmpeg → HLS → Browser | ~2s | No (Node.js only) |
+| RTMP → WebSocket → Browser | ~300ms | Yes |
+| RTMP → WebRTC → Browser | ~50ms | Yes |
 
-## Building from Source
+## Running Both Servers
 
 ```bash
-# Install dependencies
-go get gopkg.in/yaml.v3
-go get github.com/gorilla/websocket
+# Terminal 1: Node.js (RTMP ingest + HLS + Dashboard)
+npm start
 
-# Build
-go build -o go-media-server.exe .
-
-# Run
-.\go-media-server.exe
+# Terminal 2: Go server (WebSocket/WebRTC distribution)
+cd go-media-server && .\go-media-server.exe
 ```
 
-## OBS Settings for Ultra-Low Latency
-
-### SRT Configuration
-
-**Settings → Output:**
-```
-Output Mode: Advanced
-Encoder: NVENC P1 or x264 ultrafast
-Rate Control: CBR
-Bitrate: 4500 Kbps
-Keyframe Interval: 1
-Tune: zerolatency
-```
-
-**Settings → Stream:**
-```
-Service: Custom
-Server: srt://localhost:8554?streamid=your-key&latency=120000
-```
-
-**Advanced SRT Options:**
-```
-streamid=your-stream-key
-latency=120000           # 120ms in microseconds
-maxbw=0                  # unlimited bandwidth
-mode=caller              # OBS connects to server
-```
-
-## Development Status
-
-### ✅ Complete
-- Basic server architecture
-- RTMP handshake skeleton
-- SRT listener skeleton
-- WebSocket server
-- WebRTC signaling skeleton
-- REST API
-- Stream management
-- Configuration loading
-
-### 🚧 In Progress
-- Full RTMP protocol parsing (needs yapingxin/gortmp)
-- Full SRT protocol implementation (needs datarhei/gosrt)
-- WebRTC media pipeline (needs pion/webrtc)
-- H.264/AAC parsing and forwarding
-- FLV to MSE conversion
-
-### 📋 Planned
-- HLS output generation
-- Recording to disk
-- Multiple quality transcoding
-- Authentication/authorization
-- Metrics and monitoring
-
-## Integration with Node.js UI
-
-The Node.js server queries this Go server for stream state:
-
-```javascript
-// Node.js polls Go API
-const response = await fetch('http://localhost:8084/streams');
-const { streams } = await response.json();
-```
+The Node.js and Go servers share the same RTMP port (1935). 
+**Do not run both simultaneously unless you change one of the RTMP ports.**
+The intended split: Node.js handles RTMP + HLS; the Go server handles WebSocket + WebRTC only.
+In that split, set Go's RTMP port to something unused (e.g. 1936) and route OBS to Node.js.
 
 ## License
 
-MIT License - Same as parent project
-
-## Contributing
-
-This is part of the larger local-stream-server project. See main README for contribution guidelines.
+MIT — same as parent project.

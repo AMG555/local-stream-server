@@ -1,12 +1,14 @@
 {
   "name": "local-stream-server",
-  "version": "1.0.0",
-  "description": "Professional RTMP encoder testing server with health monitoring. Test OBS, vMix, Wirecast locally before going live on YouTube/Twitch.",
+  "version": "1.2.0",
+  "description": "Enterprise-grade self-hosted streaming server: RTMP ingest, HLS/WebSocket/WebRTC playback, API key auth, recording, real-time stats. Test OBS, vMix, Wirecast locally.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "start:go": "node server.js & cd go-media-server && ./go-media-server",
     "dev": "nodemon server.js",
-    "screenshots": "node take-screenshots.js",
+    "go:build": "cd go-media-server && go mod tidy && go build -o go-media-server.exe .",
+    "go:run": "cd go-media-server && go run .",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
@@ -45,7 +47,6 @@
     "npm": ">=6.0.0"
   },
   "dependencies": {
-    "axios": "^1.20.0",
     "body-parser": "^1.20.2",
     "express": "^4.18.2",
     "express-rate-limit": "^8.7.0",
@@ -54,7 +55,6 @@
     "uuid": "^14.0.2"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1",
-    "puppeteer-core": "^25.12.0"
+    "nodemon": "^3.0.1"
   }
 }

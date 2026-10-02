@@ -6,7 +6,9 @@ We release patches for security vulnerabilities. Currently supported versions:
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.0.x   | :white_check_mark: |
+| 1.2.x   | :white_check_mark: |
+| 1.1.x   | :white_check_mark: |
+| 1.0.x   | :x: (EOL)          |
 
 ## Reporting a Vulnerability
 
@@ -62,11 +64,17 @@ We appreciate security researchers who responsibly disclose vulnerabilities:
 - No authentication by default (assumes trusted network)
 - Stream keys provide basic access control
 
-⚠️ **NOT production-ready without hardening:**
-- No rate limiting
-- No DDoS protection
-- No encryption (plain RTMP)
-- No user management
+**Hardening included (v1.2+):**
+- ✅ API key authentication on all `/api/*` routes
+- ✅ Rate limiting on all API routes (120 req/min, stricter on creates/downloads)
+- ✅ Input sanitization and UUID-only stream keys
+- ✅ CSP + security headers on all responses
+- ✅ Body size cap (64 KB) against large-payload DoS
+
+**Still limited (by design — local/tunnel use):**
+- ⚠️ No DDoS protection beyond rate limiting
+- ⚠️ RTMP transport is unencrypted (use Cloudflare Tunnel or RTMPS proxy)
+- ⚠️ No per-user viewer access control
 
 ### 🌐 Public Deployment Risks
 
@@ -113,11 +121,10 @@ server {
 
 **Not vulnerabilities, but important to know:**
 
-1. **No stream encryption**: RTMP is unencrypted (consider RTMPS or SRT)
-2. **No viewer authentication**: Anyone with URL can watch
-3. **No input sanitization**: Stream metadata not validated
-4. **No resource limits**: Can be overwhelmed by large streams
-5. **FFmpeg vulnerabilities**: Depends on system FFmpeg version
+1. **No stream transport encryption**: RTMP is unencrypted (use Cloudflare Tunnel or RTMPS proxy for public deployments)
+2. **No viewer authentication**: Anyone on the LAN with the HLS URL can watch (stream key is only a publisher credential)
+3. **No resource limits on stream count**: Large numbers of concurrent streams may exhaust file descriptors
+4. **FFmpeg vulnerabilities**: Depends on the version installed on the host system — keep FFmpeg updated
 
 ### 📊 Dependency Security
 

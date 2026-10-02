@@ -1,3 +1,58 @@
+// ─── API Key Auth ────────────────────────────────────────────────────────────
+// Single-user local tool: key is stored in localStorage and sent on every request.
+const API_KEY_STORAGE = 'stream_server_api_key';
+
+function getApiKey() {
+    return localStorage.getItem(API_KEY_STORAGE) || '';
+}
+
+function setApiKey(key) {
+    localStorage.setItem(API_KEY_STORAGE, key);
+}
+
+function clearApiKey() {
+    localStorage.removeItem(API_KEY_STORAGE);
+}
+
+/**
+ * Wrapper around fetch that injects Authorization header on protected routes.
+ * Handles 401/403 by prompting the user to re-enter their API key.
+ */
+async function apiFetch(url, options = {}) {
+    const key = getApiKey();
+    const headers = { ...(options.headers || {}) };
+    
+    if (key) {
+        headers['Authorization'] = `Bearer ${key}`;
+    }
+    
+    const response = await fetch(url, { ...options, headers });
+    
+    if (response.status === 401 || response.status === 403) {
+        // Key missing or invalid — prompt user
+        const newKey = prompt(
+            '🔐 API key required.\n\n' +
+            'Run this in the server terminal to generate one:\n' +
+            '  node -e "require(\'./auth\').generateAPIKey(\'Dashboard\')" \n\n' +
+            'Or check the server startup output for your key.\n\n' +
+            'Paste your API key below:'
+        );
+        
+        if (newKey && newKey.trim()) {
+            setApiKey(newKey.trim());
+            // Retry once with new key
+            headers['Authorization'] = `Bearer ${newKey.trim()}`;
+            return fetch(url, { ...options, headers });
+        }
+        
+        throw new Error('Authentication required');
+    }
+    
+    return response;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Socket.IO connection
 const socket = io();
 
@@ -64,6 +119,15 @@ const socketHandlers = {
     },
     streamStats: (data) => {
         updateStreamStats(data.key, data.stats);
+    },
+    recordingEnded: (data) => {
+        showSuccessNotification(`✅ Recording saved: ${data.file}`);
+        updateRecordBtn(false);
+        loadRecordings();
+    },
+    recordingError: (data) => {
+        showErrorNotification(`Recording error: ${data.error}`);
+        updateRecordBtn(false);
     }
 };
 
@@ -200,7 +264,7 @@ function showFFmpegWarning() {
 async function loadAllStreams() {
     try {
         isLoading = true;
-        const response = await fetch('/api/streams');
+        const response = await apiFetch('/api/streams');
         if (!response.ok) throw new Error('Failed to fetch streams');
         
         const data = await response.json();
@@ -237,7 +301,7 @@ async function createStream(btn) {  // FIX: explicit btn param instead of implic
     button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
 
     try {
-        const response = await fetch('/api/stream/create', {
+        const response = await apiFetch('/api/stream/create', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -271,7 +335,7 @@ async function deleteStream(streamKey) {
     }
 
     try {
-        const response = await fetch(`/api/stream/${streamKey}`, {
+        const response = await apiFetch(`/api/stream/${streamKey}`, {
             method: 'DELETE'
         });
 
@@ -745,7 +809,7 @@ function showStreamDetails(data) {
 
 async function showStreamDetailsById(streamKey) {
     try {
-        const response = await fetch(`/api/stream/${streamKey}`);
+        const response = await apiFetch(`/api/stream/${streamKey}`);
         const data = await response.json();
         
         const streamData = {
@@ -1010,7 +1074,9 @@ function showTab(tabName, clickedEl) {  // FIX: explicit element param instead o
     const tabMap = {
         'live': 'liveTab',
         'all': 'allTab',
-        'stats': 'statsTab'
+        'stats': 'statsTab',
+        'recordings': 'recordingsTab',
+        'apikeys': 'apikeysTab'
     };
     
     document.getElementById(tabMap[tabName]).style.display = 'block';
@@ -1018,6 +1084,10 @@ function showTab(tabName, clickedEl) {  // FIX: explicit element param instead o
     // Set active sidebar item
     const sidebarItem = clickedEl ? clickedEl.closest('.sidebar-item') : document.querySelector('.sidebar-item.active');
     if (sidebarItem) sidebarItem.classList.add('active');
+
+    // Lazy-load data when switching to these tabs
+    if (tabName === 'recordings') loadRecordings();
+    if (tabName === 'apikeys') loadAPIKeys();
 }
 
 // Utility functions
@@ -1199,3 +1269,528 @@ window.addEventListener('beforeunload', () => {
         socket.disconnect();
     }
 });
+
+// ─── Player Mode (HLS / WebSocket / WebRTC) ──────────────────────────────────
+
+let currentPlayerMode = 'hls'; // 'hls' | 'ws' | 'webrtc'
+let wsPlayerConn = null;        // active WebSocket connection
+let webrtcPeerConn = null;      // active RTCPeerConnection
+let currentPlayingKey = null;   // stream key currently in player
+
+/**
+ * Switch between HLS, WebSocket MSE, and WebRTC playback modes.
+ */
+function switchPlayerMode(mode, btn) {
+    if (mode === currentPlayerMode) return;
+
+    // Stop current mode
+    _teardownCurrentPlayer();
+
+    // Update button states
+    document.querySelectorAll('.player-mode-btn[id^="modeBtn"]').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+
+    currentPlayerMode = mode;
+
+    // Show/hide the correct player element
+    const hlsVideo   = document.getElementById('videoPlayer');
+    const webrtcVid  = document.getElementById('webrtcPlayer');
+    const wsCanvas   = document.getElementById('wsCanvas');
+    const goLiveBtn  = document.getElementById('goLiveBtn');
+
+    hlsVideo.style.display  = (mode === 'hls')    ? 'block' : 'none';
+    webrtcVid.style.display = (mode === 'webrtc') ? 'block' : 'none';
+    wsCanvas.style.display  = (mode === 'ws')     ? 'block' : 'none';
+    if (goLiveBtn) goLiveBtn.style.display = 'none';
+
+    // Re-start player in new mode if we were already playing something
+    if (currentPlayingKey) {
+        const title = document.getElementById('playerTitle').textContent;
+        _startPlayer(currentPlayingKey, title, mode);
+    }
+}
+
+function _teardownCurrentPlayer() {
+    // HLS
+    if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+    const hlsVideo = document.getElementById('videoPlayer');
+    if (hlsVideo) { hlsVideo.pause(); hlsVideo.src = ''; }
+    const liveCheckInterval = parseInt(hlsVideo?.dataset.liveCheckInterval);
+    if (!isNaN(liveCheckInterval)) { clearInterval(liveCheckInterval); delete hlsVideo.dataset.liveCheckInterval; }
+
+    // WebSocket
+    if (wsPlayerConn) { wsPlayerConn.close(); wsPlayerConn = null; }
+
+    // WebRTC
+    if (webrtcPeerConn) { webrtcPeerConn.close(); webrtcPeerConn = null; }
+    const webrtcVid = document.getElementById('webrtcPlayer');
+    if (webrtcVid) { webrtcVid.pause(); webrtcVid.srcObject = null; }
+}
+
+/**
+ * Internal: start playback in the requested mode.
+ * Called by playStream() and switchPlayerMode().
+ */
+function _startPlayer(streamKey, title, mode) {
+    if (mode === 'hls' || !mode) {
+        // ---- existing HLS path (playStream already sets this up) ----
+        playStream(streamKey, title);
+        return;
+    }
+
+    if (mode === 'ws') {
+        _startWebSocketPlayer(streamKey);
+        return;
+    }
+
+    if (mode === 'webrtc') {
+        _startWebRTCPlayer(streamKey);
+        return;
+    }
+}
+
+// ─── WebSocket MSE Player ────────────────────────────────────────────────────
+
+let flvPlayerInstance = null; // flv.js player instance
+
+/**
+ * Connect to the Go media server WebSocket endpoint and play via flv.js MSE.
+ * flv.js speaks FLV-over-WebSocket natively — same as the Bilibili/Alibaba CDN stack.
+ * Falls back gracefully with a clear message if the Go server is not running.
+ */
+async function _startWebSocketPlayer(streamKey) {
+    const goPort = 8084;
+    // flv.js WebSocket URL — Go server must send FLV over this socket
+    const wsUrl = `ws://${window.location.hostname}:${goPort}/ws?key=${encodeURIComponent(streamKey)}`;
+
+    // Reuse the HLS <video> element — hide canvas (not needed with flv.js)
+    const wsCanvas = document.getElementById('wsCanvas');
+    const hlsVideo = document.getElementById('videoPlayer');
+    wsCanvas.style.display = 'none';
+    hlsVideo.style.display = 'block';
+
+    if (!window.flvjs || !flvjs.isSupported()) {
+        showWarningNotification('WebSocket MSE not supported in this browser — use HLS mode');
+        return;
+    }
+
+    try {
+        // Probe the Go server is reachable before connecting flv.js
+        const probe = new WebSocket(wsUrl);
+        await new Promise((resolve, reject) => {
+            probe.onopen  = () => { probe.close(); resolve(); };
+            probe.onerror = () => reject(new Error('Go server unreachable'));
+            setTimeout(() => reject(new Error('timeout')), 3000);
+        });
+    } catch (err) {
+        showWarningNotification('WebSocket player: Go media server not running on port 8084. Use HLS mode.');
+        hlsVideo.style.display = 'none';
+        return;
+    }
+
+    try {
+        if (flvPlayerInstance) {
+            flvPlayerInstance.destroy();
+            flvPlayerInstance = null;
+        }
+
+        flvPlayerInstance = flvjs.createPlayer({
+            type: 'flv',
+            isLive: true,
+            url: wsUrl,
+        }, {
+            enableWorker: false,        // worker breaks in some CSP setups
+            lazyLoadMaxDuration: 3 * 60,
+            seekType: 'range',
+            liveBufferLatencyChasing: true,
+            liveBufferLatencyMaxLatency: 1.5,   // chase to within 1.5s
+            liveBufferLatencyMinRemain: 0.2,
+        });
+
+        flvPlayerInstance.attachMediaElement(hlsVideo);
+        flvPlayerInstance.load();
+        hlsVideo.play().catch(e => console.warn('flv autoplay blocked:', e));
+
+        flvPlayerInstance.on(flvjs.Events.ERROR, (errType, errDetail) => {
+            console.error('flv.js error:', errType, errDetail);
+            if (errType === flvjs.ErrorTypes.NETWORK_ERROR) {
+                showWarningNotification('WebSocket stream: connection lost');
+            } else {
+                showErrorNotification(`WebSocket player error: ${errType}`);
+            }
+        });
+
+        // Store the connection reference so _teardownCurrentPlayer can clean up
+        wsPlayerConn = { close: () => {
+            if (flvPlayerInstance) {
+                flvPlayerInstance.pause();
+                flvPlayerInstance.unload();
+                flvPlayerInstance.detachMediaElement();
+                flvPlayerInstance.destroy();
+                flvPlayerInstance = null;
+            }
+        }};
+
+        showSuccessNotification('WebSocket stream connected via flv.js MSE (~300ms latency)');
+    } catch (err) {
+        showErrorNotification('WebSocket player failed: ' + err.message);
+    }
+}
+
+// ─── WebRTC Player ───────────────────────────────────────────────────────────
+
+/**
+ * Start WebRTC playback via the Go media server signaling endpoint.
+ */
+async function _startWebRTCPlayer(streamKey) {
+    const goPort = 8084;
+    const webrtcVid = document.getElementById('webrtcPlayer');
+    webrtcVid.style.display = 'block';
+
+    try {
+        const pc = new RTCPeerConnection({
+            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        });
+        webrtcPeerConn = pc;
+
+        // peerId is returned by the server — used for ICE so multiple viewers work
+        let peerId = null;
+
+        pc.ontrack = (evt) => {
+            if (evt.streams && evt.streams[0]) {
+                webrtcVid.srcObject = evt.streams[0];
+                webrtcVid.play().catch(e => console.warn('WebRTC autoplay blocked:', e));
+                showSuccessNotification('WebRTC stream connected (~50ms latency)');
+            }
+        };
+
+        pc.onicecandidate = async (evt) => {
+            if (evt.candidate && peerId) {
+                try {
+                    await fetch(
+                        `http://${window.location.hostname}:${goPort}/webrtc/candidate?peerId=${encodeURIComponent(peerId)}`,
+                        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(evt.candidate) }
+                    );
+                } catch (_) {} // non-fatal — ICE can continue
+            }
+        };
+
+        pc.onconnectionstatechange = () => {
+            if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+                showWarningNotification('WebRTC connection lost');
+            }
+        };
+
+        pc.addTransceiver('video', { direction: 'recvonly' });
+        pc.addTransceiver('audio', { direction: 'recvonly' });
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        const resp = await fetch(
+            `http://${window.location.hostname}:${goPort}/webrtc/offer?key=${encodeURIComponent(streamKey)}`,
+            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(offer) }
+        );
+
+        if (!resp.ok) throw new Error(`Signaling error: ${resp.status}`);
+
+        const body = await resp.json();
+        // Server returns { answer: SDP, peerId: string }
+        peerId = body.peerId || resp.headers.get('X-Peer-ID') || null;
+        await pc.setRemoteDescription(body.answer || body);
+
+    } catch (err) {
+        showWarningNotification('WebRTC unavailable — Go media server not running on port 8084. Use HLS mode.');
+        webrtcVid.style.display = 'none';
+    }
+}
+
+// ─── Recording Controls ───────────────────────────────────────────────────────
+
+let isRecording = false;
+
+function updateRecordBtn(active) {
+    isRecording = active;
+    const btn = document.getElementById('recordBtn');
+    if (!btn) return;
+    if (active) {
+        btn.style.borderColor = 'rgba(255,60,60,0.8)';
+        btn.style.background = 'rgba(255,60,60,0.15)';
+        btn.innerHTML = '<i class="fas fa-stop" style="color:#f44;"></i> Stop';
+    } else {
+        btn.style.borderColor = 'rgba(255,60,60,0.4)';
+        btn.style.background = 'transparent';
+        btn.innerHTML = '<i class="fas fa-circle" style="color:#f44;"></i> Record';
+    }
+}
+
+async function toggleRecording() {
+    const key = document.getElementById('videoPlayer').dataset.streamKey
+             || document.getElementById('webrtcPlayer').dataset.streamKey;
+    if (!key) { showWarningNotification('No stream open in player'); return; }
+
+    if (!isRecording) {
+        try {
+            const resp = await apiFetch(`/api/stream/${key}/record/start`, { method: 'POST' });
+            const data = await resp.json();
+            if (resp.ok) {
+                updateRecordBtn(true);
+                showSuccessNotification(`🔴 Recording started: ${data.file}`);
+            } else {
+                showErrorNotification(data.error || 'Could not start recording');
+            }
+        } catch (err) {
+            showErrorNotification('Recording failed: ' + err.message);
+        }
+    } else {
+        try {
+            const resp = await apiFetch(`/api/stream/${key}/record/stop`, { method: 'POST' });
+            const data = await resp.json();
+            if (resp.ok) {
+                updateRecordBtn(false);
+                showSuccessNotification(`⏹ Recording stopped: ${data.file}`);
+            } else {
+                showErrorNotification(data.error || 'Could not stop recording');
+            }
+        } catch (err) {
+            showErrorNotification('Stop recording failed: ' + err.message);
+        }
+    }
+}
+
+// ─── Recordings Panel ─────────────────────────────────────────────────────────
+
+async function loadRecordings() {
+    const container = document.getElementById('recordingsList');
+    if (!container) return;
+
+    try {
+        const resp = await apiFetch('/api/recordings');
+        const data = await resp.json();
+
+        if (!data.recordings || data.recordings.length === 0) {
+            container.innerHTML = '<div class="no-streams"><i class="fas fa-film"></i><p>No recordings yet</p></div>';
+            return;
+        }
+
+        container.innerHTML = data.recordings.map(rec => {
+            const mb = (rec.size / 1048576).toFixed(1);
+            const date = new Date(rec.createdAt).toLocaleString();
+            const safeFile = escHtml(rec.file);
+            return `
+            <div class="stream-list-item" data-rec-file="${safeFile}">
+                <div class="stream-list-info">
+                    <div class="stream-list-title"><i class="fas fa-film"></i> ${safeFile}</div>
+                    <div class="stream-list-details">
+                        <span><i class="fas fa-hdd"></i> ${mb} MB</span>
+                        <span><i class="fas fa-calendar"></i> ${date}</span>
+                    </div>
+                </div>
+                <div class="stream-list-actions">
+                    <a href="/api/recordings/${encodeURIComponent(rec.file)}" class="btn-secondary btn-rec-download" download="${safeFile}">
+                        <i class="fas fa-download"></i> Download
+                    </a>
+                    <button class="btn-icon btn-rec-delete" data-file="${safeFile}" aria-label="Delete recording" style="margin-left:6px">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>`;
+        }).join('');
+
+        // Inject API key into download links (required auth header)
+        container.querySelectorAll('a.btn-rec-download').forEach(link => {
+            const url = new URL(link.href);
+            link.addEventListener('click', async (e) => {
+                e.preventDefault();
+                try {
+                    const resp = await apiFetch(url.pathname);
+                    const blob = await resp.blob();
+                    const objUrl = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = objUrl;
+                    a.download = link.getAttribute('download');
+                    a.click();
+                    setTimeout(() => URL.revokeObjectURL(objUrl), 5000);
+                } catch (err) {
+                    showErrorNotification('Download failed: ' + err.message);
+                }
+            });
+        });
+
+        // Delete recording buttons
+        container.querySelectorAll('button.btn-rec-delete').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const file = btn.dataset.file;
+                if (!confirm(`Delete recording "${file}"? This cannot be undone.`)) return;
+                try {
+                    const resp = await apiFetch(`/api/recordings/${encodeURIComponent(file)}`, { method: 'DELETE' });
+                    if (resp.ok) {
+                        showSuccessNotification('Recording deleted');
+                        loadRecordings();
+                    } else {
+                        const data = await resp.json().catch(() => ({}));
+                        showErrorNotification(data.error || 'Failed to delete recording');
+                    }
+                } catch (err) {
+                    showErrorNotification('Delete failed: ' + err.message);
+                }
+            });
+        });
+
+    } catch (err) {
+        container.innerHTML = '<div class="no-streams"><i class="fas fa-exclamation-triangle"></i><p>Failed to load recordings</p></div>';
+    }
+}
+
+// ─── API Key Management ───────────────────────────────────────────────────────
+
+async function loadAPIKeys() {
+    const container = document.getElementById('apiKeysList');
+    if (!container) return;
+
+    try {
+        const resp = await apiFetch('/api/keys');
+        const data = await resp.json();
+
+        if (!data.keys || data.keys.length === 0) {
+            container.innerHTML = '<div class="no-streams"><i class="fas fa-key"></i><p>No API keys found</p></div>';
+            return;
+        }
+
+        const currentKey = getApiKey();
+
+        container.innerHTML = data.keys.map(k => {
+            const safeName = escHtml(k.name);
+            const safePreview = escHtml(k.keyPreview);
+            const safeId = escHtml(k.id || '');
+            const lastUsed = k.lastUsed ? new Date(k.lastUsed).toLocaleString() : 'Never';
+            const isActive = currentKey.startsWith(k.keyPreview.replace('...', ''));
+            return `
+            <div class="stream-list-item">
+                <div class="stream-list-info">
+                    <div class="stream-list-title">
+                        ${safeName}
+                        ${isActive ? '<span class="status-badge live">Active Session</span>' : ''}
+                    </div>
+                    <div class="stream-list-details">
+                        <span><i class="fas fa-key"></i> ${safePreview}</span>
+                        <span><i class="fas fa-clock"></i> Last used: ${lastUsed}</span>
+                        <span><i class="fas fa-calendar"></i> Created: ${new Date(k.createdAt).toLocaleDateString()}</span>
+                    </div>
+                </div>
+                <div class="stream-list-actions">
+                    ${isActive ? '' : `<button class="btn-icon btn-delete-key" data-key-id="${safeId}" aria-label="Revoke key">
+                        <i class="fas fa-trash"></i>
+                    </button>`}
+                </div>
+            </div>`;
+        }).join('');
+
+        // Bind revoke buttons — uses ID-based endpoint so we never expose the full key
+        container.querySelectorAll('.btn-delete-key').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                if (!confirm('Revoke this API key? This cannot be undone.')) return;
+                const keyId = btn.dataset.keyId;
+                if (!keyId) { showErrorNotification('Key ID missing — cannot revoke'); return; }
+                try {
+                    const resp = await apiFetch(`/api/keys/id/${encodeURIComponent(keyId)}`, { method: 'DELETE' });
+                    if (resp.ok) {
+                        showSuccessNotification('API key revoked');
+                        loadAPIKeys();
+                    } else {
+                        const data = await resp.json().catch(() => ({}));
+                        showErrorNotification(data.error || 'Failed to revoke key');
+                    }
+                } catch (err) {
+                    showErrorNotification('Revoke failed: ' + err.message);
+                }
+            });
+        });
+
+        // Update export links with Authorization token via anchor interception
+        ['exportJsonLink', 'exportCsvLink'].forEach(id => {
+            const link = document.getElementById(id);
+            if (link) {
+                const cloned = link.cloneNode(true);
+                link.parentNode.replaceChild(cloned, link);
+                cloned.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    const format = id.includes('Json') ? 'json' : 'csv';
+                    try {
+                        const resp = await apiFetch(`/api/streams/export?format=${format}`);
+                        const blob = await resp.blob();
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `streams-export.${format}`;
+                        a.click();
+                        setTimeout(() => URL.revokeObjectURL(url), 5000);
+                    } catch (err) {
+                        showErrorNotification('Export failed');
+                    }
+                });
+            }
+        });
+
+    } catch (err) {
+        container.innerHTML = '<div class="no-streams"><i class="fas fa-exclamation-triangle"></i><p>Failed to load API keys</p></div>';
+    }
+}
+
+function showCreateKeyModal() {
+    document.getElementById('newKeyName').value = '';
+    document.getElementById('newKeyResult').style.display = 'none';
+    document.getElementById('createKeyBtn').disabled = false;
+    document.getElementById('createKeyModal').classList.add('active');
+}
+
+function hideCreateKeyModal() {
+    document.getElementById('createKeyModal').classList.remove('active');
+    loadAPIKeys();
+}
+
+async function createAPIKey(btn) {
+    const name = document.getElementById('newKeyName').value.trim();
+    if (!name) { showErrorNotification('Enter a key name'); return; }
+
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
+
+    try {
+        const resp = await apiFetch('/api/keys', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+        });
+        const data = await resp.json();
+
+        if (!resp.ok) throw new Error(data.error || 'Failed');
+
+        document.getElementById('newKeyValue').value = data.key;
+        document.getElementById('newKeyResult').style.display = 'block';
+        btn.style.display = 'none'; // Hide create button once shown
+        showSuccessNotification('API key created');
+    } catch (err) {
+        showErrorNotification('Failed to create key: ' + err.message);
+        btn.disabled = false;
+        btn.innerHTML = orig;
+    }
+}
+
+// ─── Track currentPlayingKey via MutationObserver ────────────────────────────
+// The script runs after DOM is ready (it's at the bottom of the page), so we
+// can observe the videoPlayer element directly — no DOMContentLoaded needed.
+(function () {
+    const v = document.getElementById('videoPlayer');
+    if (!v) return; // defensive: element must exist
+
+    const observer = new MutationObserver(() => {
+        if (v.dataset.streamKey) {
+            currentPlayingKey = v.dataset.streamKey;
+            updateRecordBtn(false);
+            isRecording = false;
+        }
+    });
+    observer.observe(v, { attributes: true, attributeFilter: ['data-stream-key'] });
+})();

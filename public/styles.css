@@ -1406,3 +1406,70 @@ button .fa-spinner {
 #recommendedSettings li strong {
     color: var(--text-primary);
 }
+
+/* ─── Phase 2: Player Mode Bar ──────────────────────────────────────────────── */
+
+.player-mode-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 0;
+    margin-bottom: 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.player-mode-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.15s ease;
+}
+
+.player-mode-btn:hover {
+    border-color: var(--secondary-color);
+    color: var(--text-primary);
+}
+
+.player-mode-btn.active {
+    border-color: var(--secondary-color);
+    background: rgba(6, 95, 212, 0.15);
+    color: var(--text-primary);
+}
+
+.player-mode-btn small {
+    opacity: 0.65;
+    font-size: 10px;
+}
+
+.record-btn {
+    padding: 5px 12px;
+}
+
+/* ─── Phase 2: Small buttons ─────────────────────────────────────────────────── */
+
+.btn-sm {
+    padding: 5px 12px;
+    font-size: 13px;
+}
+
+/* ─── Phase 2: surface variable (for code blocks inside info panels) ─────────── */
+
+:root {
+    --surface: #1f1f1f;
+    --text-secondary: #aaaaaa;
+}
+
+.tab-content code {
+    background: rgba(255,255,255,0.06);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-family: monospace;
+}

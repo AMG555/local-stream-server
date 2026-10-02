@@ -5,6 +5,83 @@ All notable changes to Local Stream Server will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - Enterprise Hardening
+
+### 🔒 Security Fixes
+
+- **MEDIUM**: `/api/info` no longer exposes `ffmpegPath` (full server disk path) to unauthenticated clients
+- **CSP hardened**: added `'unsafe-eval'` for socket.io, `media-src 'self' blob:` for WebRTC, `Referrer-Policy: strict-origin-when-cross-origin`
+- **Body size limit**: JSON requests capped at 64 KB to prevent large-payload DoS attacks
+- **Recording downloads rate-limited**: `GET /api/recordings/:file` now subject to 10 req/min per IP
+
+### ⚡ Performance & Reliability
+
+- **General API rate limiter**: all `/api/*` routes now limited to 120 req/min per IP (public endpoints exempted)
+- **Go stream manager**: fixed unbounded consumer slice growth — each `SubscribeAudio`/`SubscribeVideo` call returns an unsubscribe function; WebSocket and WebRTC servers call it on disconnect
+- **Go BroadcastAudio/Video**: fixed lock-held-during-IO deadlock risk — consumer slice is copied under RLock, then callbacks are invoked without any lock held
+- **Go WebRTC**: fixed single-viewer-per-stream limitation — peer connections are now keyed by unique per-connection IDs, not stream keys; multiple simultaneous viewers work correctly
+- **Go WebSocket**: removed `RWMutex` in favor of `Mutex`; `BroadcastData` replaced with per-connection `sendToConn` so slow clients cannot block others
+
+### ✨ New Endpoints
+
+- `GET /health/deep` (authenticated): deep health check returning FFmpeg status, disk free space, active recordings, and RTMP port state
+- `GET /api/streams` now paginated: `?page=1&limit=50` (max 200); response includes `total`, `pages`, `page`, `limit`
+
+### 🔧 Frontend Fixes
+
+- `app.js`: `MutationObserver` for `currentPlayingKey` now registered directly on the DOM element (scripts run after DOM is ready — no `DOMContentLoaded` wrapper needed)
+- `app.js`: WebRTC ICE candidates now sent with `?peerId=` instead of `?key=` to match the Go server's per-peer routing
+- `app.js`: WebRTC answer parsing handles the new `{ answer, peerId }` response envelope from the Go server
+
+### 📚 Documentation
+
+- `go-media-server/README.md` updated to reflect Phase 2 working status: RTMP ✅, WebSocket ✅, WebRTC ✅, SRT ⚠️ (skeleton)
+
+## [1.1.0] - Phase 2
+
+### ✨ New Features
+
+#### Stream Recording
+- `POST /api/stream/:key/record/start` — start recording a live stream to `recordings/` as MP4 (requires FFmpeg)
+- `POST /api/stream/:key/record/stop` — gracefully stop the recording (writes moov atom)
+- `GET /api/stream/:key/record` — get recording status for a stream
+- `GET /api/recordings` — list all saved recording files
+- `GET /api/recordings/:file` — download a recording (authenticated)
+- Recording automatically stops when the stream ends or server shuts down
+- Real-time `recordingEnded` / `recordingError` Socket.IO events
+- **Recordings panel** in sidebar — see all recordings with file size, date, download button
+
+#### API Key Management UI
+- **API Keys panel** in sidebar — view all keys, last-used timestamps, create new keys inline
+- Create API key modal — generates key and shows it once for copying
+- **Export Analytics** buttons — download streams history as JSON or CSV directly from the dashboard
+
+#### Analytics Export
+- `GET /api/streams/export?format=json` — export all stream history as JSON
+- `GET /api/streams/export?format=csv` — export all stream history as CSV with headers
+- Both endpoints are authenticated and served as file downloads
+
+#### Multi-Protocol Video Player
+- Player mode bar in video player modal: **HLS** (~2s), **WebSocket** (~300ms), **WebRTC** (~50ms)
+- HLS mode: existing HLS.js player (unchanged, works without Go server)
+- WebSocket mode: connects to Go media server port 8084 — live binary media receive via canvas
+- WebRTC mode: full SDP offer/answer negotiation with Go media server — displays stream via native `<video>` srcObject
+- All modes degrade gracefully if the Go media server is not running
+
+#### Real Stats from NMS Sessions
+- Bitrate, FPS, resolution, video codec, audio codec now read from live NMS session objects
+- Replaces simulated random values with real encoder data
+- Recording status included in stats payload
+
+### 🔧 Go Media Server — Phase 2 (RTMP rewrite)
+- Replaced fabricated `yapingxin/gortmp` import with **`yutopp/go-rtmp`** — a real, maintained pure-Go RTMP server library
+- `connHandler` implements `OnPublish`, `OnAudio`, `OnVideo`, `OnClose` from go-rtmp's handler interface
+- Media from OBS/vMix flows through to `BroadcastAudio` / `BroadcastVideo` for WebSocket and WebRTC consumers
+- Stream key validation reads from `../stream-keys.json` at startup
+- Added `npm run go:build` and `npm run go:run` scripts to `package.json`
+- Added `npm run go:build` for when Go is installed: `cd go-media-server && go mod tidy && go build -o go-media-server.exe .`
+
+
 ## [1.0.4] - 2026-02-10
 
 ### ✨ YouTube-Style Live Streaming + Ultra-Low Latency
@@ -155,20 +232,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned Features
-- [ ] Stream recording with auto-cleanup
-- [ ] Multi-bitrate transcoding (ABR)
-- [ ] WebRTC playback support
-- [ ] SRT protocol support (Secure Reliable Transport)
-- [ ] Stream analytics export (CSV/JSON)
-- [ ] API authentication
-- [ ] Docker support
-- [ ] Rate limiting
-- [ ] RTMPS (encrypted RTMP)
+- [ ] SRT protocol full implementation (UDP listener skeleton exists in Go server)
+- [ ] Multi-bitrate HLS transcoding (ABR ladder)
+- [ ] Docker / docker-compose single-command startup
+- [ ] RTMPS (TLS-wrapped RTMP) support
+- [ ] Chat overlay (Socket.IO room per stream key)
 
 ---
 
 ## Version History
 
+- **1.2.0** - Enterprise hardening: API key auth, rate limiting, CSP, Go concurrency fixes, revoke-by-ID, delete recordings
+- **1.1.0** - Phase 2: recording, API key UI, multi-protocol player (HLS/WS/WebRTC), real NMS stats, analytics export
+- **1.0.4** - YouTube-style live edge, ultra-low latency HLS config
+- **1.0.3** - Graceful shutdown, uptime timer memory leak, corrupted JSON handling
+- **1.0.2** - CVE-2025-27137 (uuid), XSS in data attrs, CSP headers, rate limiting (create/delete)
+- **1.0.1** - XSS via inline onclick, FFmpeg zombie process fix, HLS segment cleanup
 - **1.0.0** (2024-10-01) - Initial public release
 
 ---

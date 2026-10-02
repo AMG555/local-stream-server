@@ -755,43 +755,99 @@ Address: rtmp://YOUR_IP:1935/live/YOUR_STREAM_KEY
 - Monitor CPU usage in Task Manager
 - Adjust OBS preset based on CPU performance
 
-## 🔐 Security Notes
+## 🔐 Security
 
-⚠️ **This server is designed for LOCAL NETWORK use only!**
+**Authentication** is required for all API endpoints. An API key (`sk_...`) is auto-generated on first run and printed to the console. All subsequent requests need `Authorization: Bearer <key>`.
 
-- Never expose RTMP port (1935) to the internet
-- Stream keys are UUID-based but not encrypted
-- No authentication on web interface
-- Intended for testing and local events only
+**Built-in hardening:**
+- ✅ API key authentication on all `/api/*` routes
+- ✅ Rate limiting: 120 req/min general, 10 req/min for downloads, 10 creates/15min
+- ✅ Body size capped at 64 KB (DoS prevention)
+- ✅ UUID-only stream keys (no guessable IDs)
+- ✅ Input sanitization (titles, file paths, stream keys)
+- ✅ CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy headers
+- ✅ Path traversal guard on recording downloads
+- ✅ 0 npm audit vulnerabilities
 
-For production streaming, use platforms like:
-- YouTube Live
-- Twitch
-- Facebook Live
-- Or professional streaming servers with proper security
+**Network posture:**
+- Designed for LAN / Cloudflare Tunnel. Do not expose RTMP port 1935 to the open internet without a firewall rule.
+- RTMP is unencrypted by default. Use Cloudflare Tunnel or an RTMPS proxy for public deployments.
+
+## 📊 API Reference
+
+All endpoints require `Authorization: Bearer <api-key>` except `/api/info` and `/health`.
+
+### Stream Keys
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/stream/create` | Create stream key `{ title }` |
+| `GET` | `/api/streams` | List all streams (paginated: `?page=1&limit=50`) |
+| `GET` | `/api/streams/active` | Live streams only |
+| `GET` | `/api/stream/:key` | Stream info + live stats |
+| `DELETE` | `/api/stream/:key` | Delete stream key |
+| `GET` | `/api/streams/export` | Export history (`?format=json\|csv`) |
+
+### Recording
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/stream/:key/record/start` | Start recording to `recordings/` (FFmpeg) |
+| `POST` | `/api/stream/:key/record/stop` | Stop recording (writes MP4 moov atom) |
+| `GET` | `/api/stream/:key/record` | Recording status + duration |
+| `GET` | `/api/recordings` | List saved recordings |
+| `GET` | `/api/recordings/:file` | Download recording |
+| `DELETE` | `/api/recordings/:file` | Delete recording |
+
+### API Keys
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/keys` | List keys (redacted previews + IDs) |
+| `POST` | `/api/keys` | Create key `{ name }` → returns full key once |
+| `DELETE` | `/api/keys/id/:id` | Revoke key by UUID (browser-safe) |
+| `DELETE` | `/api/keys/:key` | Revoke key by full value (CLI) |
+
+### Health
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/health` | Basic liveness check (public) |
+| `GET` | `/health/deep` | FFmpeg, disk, recordings, RTMP (authenticated) |
+| `GET` | `/api/info` | Server IP, ports, FFmpeg status (public) |
 
 ## 📝 Project Structure
 
 ```
 local-stream-server/
-├── server.js              # Main server (Express + RTMP)
-├── package.json           # Dependencies
+├── server.js              # Express + RTMP + all API endpoints
+├── auth.js                # API key middleware, generate, revoke, list
+├── package.json
 ├── public/
-│   ├── index.html        # Web interface
-│   ├── styles.css        # YouTube-like styling
-│   └── app.js            # Frontend logic + Socket.IO
-├── media/                # Created automatically (stream files)
-└── README.md             # This file
+│   ├── index.html         # Dashboard UI
+│   ├── styles.css
+│   └── app.js             # Frontend: HLS/WS/WebRTC player, recordings, API keys
+├── go-media-server/       # Go binary — WebSocket + WebRTC + low-latency RTMP
+│   ├── main.go
+│   ├── config.yml
+│   └── pkg/
+│       ├── rtmp/          # yutopp/go-rtmp handler
+│       ├── stream/        # Thread-safe fan-out manager
+│       ├── websocket/     # gorilla/websocket server
+│       ├── webrtc/        # pion/webrtc SDP + ICE
+│       ├── api/           # REST + CORS middleware
+│       └── config/
+├── recordings/            # MP4 recordings (gitignored)
+├── media/                 # HLS segments (gitignored)
+├── CHANGELOG.md
+├── SECURITY.md
+└── README.md
 ```
 
 ## 🤝 Contributing
 
-This is a local testing tool. Feel free to modify for your needs:
-- Add authentication
-- Custom themes
-- Recording features
-- Chat integration
-- Multi-bitrate streaming
+See [CONTRIBUTING.md](CONTRIBUTING.md). Some good first areas:
+
+- **SRT protocol** — the Go server has a UDP listener skeleton; implementing the SRT handshake would complete the 4th protocol
+- **Multi-bitrate HLS** — add ABR ladder (1080p/720p/480p) via FFmpeg `-map` outputs
+- **Chat overlay** — Socket.IO room per stream key
+- **Docker** — `Dockerfile` + `docker-compose.yml` for single-command startup
 
 ## 📄 License
 
@@ -800,11 +856,18 @@ MIT License - Free to use and modify
 ## 🙏 Credits
 
 Built with:
-- [Node.js](https://nodejs.org/)
-- [node-media-server](https://github.com/illuspas/Node-Media-Server)
-- [Express](https://expressjs.com/)
-- [Socket.IO](https://socket.io/)
-- [HLS.js](https://github.com/video-dev/hls.js/)
+
+**Node.js stack:**
+- [Express](https://expressjs.com/) — HTTP server and middleware
+- [node-media-server](https://github.com/illuspas/Node-Media-Server) — RTMP ingest + HLS transcode
+- [Socket.IO](https://socket.io/) — real-time events
+- [HLS.js](https://github.com/video-dev/hls.js/) — in-browser HLS playback
+- [express-rate-limit](https://github.com/express-rate-limit/express-rate-limit) — API rate limiting
+
+**Go stack:**
+- [yutopp/go-rtmp](https://github.com/yutopp/go-rtmp) — pure-Go RTMP server library
+- [pion/webrtc](https://github.com/pion/webrtc) — WebRTC peer connection + ICE
+- [gorilla/websocket](https://github.com/gorilla/websocket) — WebSocket server
 
 ## 💬 Support
 

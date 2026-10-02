@@ -34,6 +34,7 @@ dash/
 
 # Stream data (user-generated)
 stream-keys.json
+api-keys.json
 
 # FFmpeg temp files
 ffmpeg*.log

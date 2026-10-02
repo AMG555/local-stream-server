@@ -2,32 +2,44 @@ package webrtc
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
+	"sync/atomic"
 
 	"github.com/local-stream-server/go-media-server/pkg/stream"
+	"github.com/pion/webrtc/v3"
 )
 
+// Server handles WebRTC signaling and media forwarding.
 type Server struct {
 	streamManager *stream.Manager
-	peers         map[string]*PeerConnection
-	mu            sync.RWMutex
+	peers         sync.Map // peerID -> *peerSession
+	nextPeerID    atomic.Uint64
+	config        webrtc.Configuration
 }
 
-type PeerConnection struct {
-	StreamKey string
-	// TODO: Add pion/webrtc PeerConnection when integrated
+// peerSession holds a single viewer's WebRTC state.
+type peerSession struct {
+	pc          *webrtc.PeerConnection
+	streamKey   string
+	unsubAudio  func()
+	unsubVideo  func()
 }
 
 func NewServer(mgr *stream.Manager) *Server {
 	return &Server{
 		streamManager: mgr,
-		peers:         make(map[string]*PeerConnection),
+		config: webrtc.Configuration{
+			ICEServers: []webrtc.ICEServer{
+				{URLs: []string{"stun:stun.l.google.com:19302"}},
+			},
+		},
 	}
 }
 
-// HandleOffer handles WebRTC offer from client
+// HandleOffer handles a WebRTC offer from a viewer and returns an SDP answer.
 func (s *Server) HandleOffer(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -40,64 +52,170 @@ func (s *Server) HandleOffer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var offer map[string]interface{}
+	var offer webrtc.SessionDescription
 	if err := json.NewDecoder(r.Body).Decode(&offer); err != nil {
 		http.Error(w, "Invalid offer", http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("WebRTC offer received for stream %s", streamKey)
+	log.Printf("WebRTC offer for stream %s", streamKey)
 
-	// TODO: Create PeerConnection with pion/webrtc
-	// TODO: Set remote description (offer)
-	// TODO: Create answer
-	// TODO: Set local description (answer)
-	// TODO: Return answer to client
-
-	// Placeholder response
-	answer := map[string]interface{}{
-		"type": "answer",
-		"sdp":  "TODO: Generate SDP answer using pion/webrtc",
+	pc, err := webrtc.NewPeerConnection(s.config)
+	if err != nil {
+		log.Printf("Failed to create peer connection: %v", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
 	}
 
+	audioTrack, err := webrtc.NewTrackLocalStaticRTP(
+		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus}, "audio", "stream",
+	)
+	if err != nil {
+		pc.Close()
+		log.Printf("Failed to create audio track: %v", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	if _, err = pc.AddTrack(audioTrack); err != nil {
+		pc.Close()
+		log.Printf("Failed to add audio track: %v", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	videoTrack, err := webrtc.NewTrackLocalStaticRTP(
+		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264}, "video", "stream",
+	)
+	if err != nil {
+		pc.Close()
+		log.Printf("Failed to create video track: %v", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	if _, err = pc.AddTrack(videoTrack); err != nil {
+		pc.Close()
+		log.Printf("Failed to add video track: %v", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Each peer gets a unique ID — multiple viewers per stream are supported.
+	peerID := fmt.Sprintf("%s#%d", streamKey, s.nextPeerID.Add(1))
+
+	sess := &peerSession{pc: pc, streamKey: streamKey}
+
+	// Subscribe to media; forward raw RTP.
+	// Note: real production deployment needs an RTMP→RTP transcoder here.
+	sess.unsubAudio = s.streamManager.SubscribeAudio(streamKey, func(data []byte) {
+		if _, err := audioTrack.Write(data); err != nil {
+			log.Printf("WebRTC audio write error for %s: %v", peerID, err)
+		}
+	})
+	sess.unsubVideo = s.streamManager.SubscribeVideo(streamKey, func(data []byte) {
+		if _, err := videoTrack.Write(data); err != nil {
+			log.Printf("WebRTC video write error for %s: %v", peerID, err)
+		}
+	})
+
+	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		log.Printf("WebRTC %s state: %s", peerID, state)
+		switch state {
+		case webrtc.PeerConnectionStateConnected:
+			s.streamManager.AddClient(streamKey)
+		case webrtc.PeerConnectionStateDisconnected,
+			webrtc.PeerConnectionStateFailed,
+			webrtc.PeerConnectionStateClosed:
+			s.streamManager.RemoveClient(streamKey)
+			s.cleanupPeer(peerID)
+		}
+	})
+
+	s.peers.Store(peerID, sess)
+
+	if err := pc.SetRemoteDescription(offer); err != nil {
+		s.cleanupPeer(peerID)
+		log.Printf("Set remote description failed: %v", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	answer, err := pc.CreateAnswer(nil)
+	if err != nil {
+		s.cleanupPeer(peerID)
+		log.Printf("Create answer failed: %v", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	if err := pc.SetLocalDescription(answer); err != nil {
+		s.cleanupPeer(peerID)
+		log.Printf("Set local description failed: %v", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Return the peer ID in a custom header so the client can use it for ICE.
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	json.NewEncoder(w).Encode(answer)
+	w.Header().Set("X-Peer-ID", peerID)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"answer": answer,
+		"peerId": peerID,
+	})
 
-	// Register peer
-	s.mu.Lock()
-	s.peers[streamKey] = &PeerConnection{
-		StreamKey: streamKey,
-	}
-	s.streamManager.AddClient(streamKey)
-	s.mu.Unlock()
-
-	log.Printf("WebRTC peer connected for stream %s", streamKey)
+	log.Printf("WebRTC answer sent for %s", peerID)
 }
 
-// HandleICECandidate handles ICE candidates from client
+// HandleICECandidate processes a trickle-ICE candidate from a viewer.
 func (s *Server) HandleICECandidate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	streamKey := r.URL.Query().Get("key")
-	if streamKey == "" {
-		http.Error(w, "Stream key required", http.StatusBadRequest)
+	peerID := r.URL.Query().Get("peerId")
+	if peerID == "" {
+		// Backwards-compatible: fall back to stream key (first peer for that stream)
+		peerID = r.URL.Query().Get("key")
+	}
+	if peerID == "" {
+		http.Error(w, "peerId required", http.StatusBadRequest)
 		return
 	}
 
-	var candidate map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&candidate); err != nil {
+	var candidateInit webrtc.ICECandidateInit
+	if err := json.NewDecoder(r.Body).Decode(&candidateInit); err != nil {
 		http.Error(w, "Invalid candidate", http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("WebRTC ICE candidate received for stream %s", streamKey)
+	val, ok := s.peers.Load(peerID)
+	if !ok {
+		http.Error(w, "Peer not found", http.StatusNotFound)
+		return
+	}
+	sess := val.(*peerSession)
 
-	// TODO: Add ICE candidate to PeerConnection
+	if err := sess.pc.AddICECandidate(candidateInit); err != nil {
+		log.Printf("Add ICE candidate failed for %s: %v", peerID, err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(http.StatusOK)
+}
+
+// cleanupPeer unsubscribes and removes a peer session.
+func (s *Server) cleanupPeer(peerID string) {
+	if val, ok := s.peers.LoadAndDelete(peerID); ok {
+		sess := val.(*peerSession)
+		if sess.unsubAudio != nil {
+			sess.unsubAudio()
+		}
+		if sess.unsubVideo != nil {
+			sess.unsubVideo()
+		}
+		sess.pc.Close()
+	}
 }
