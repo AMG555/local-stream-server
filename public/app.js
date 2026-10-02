@@ -10,11 +10,11 @@ let isLoading = false;
 let retryCount = 0;
 
 // Initialize
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     showLoadingState();
-    loadServerInfo();
-    loadAllStreams();
     setupSocketListeners();
+    await loadServerInfo(); // Wait for server info before loading streams
+    loadAllStreams();
     startUptimeTimer();
     setupKeyboardShortcuts();
 });
@@ -427,13 +427,13 @@ function renderLiveStreams(streams) {
     }
 
     // Show watch instructions banner if FFmpeg not available
-    const watchBanner = !serverInfo.ffmpegAvailable ? `
+    const watchBanner = (serverInfo && !serverInfo.ffmpegAvailable) ? `
         <div style="background: rgba(255, 152, 0, 0.1); border: 1px solid rgba(255, 152, 0, 0.3); border-radius: 8px; padding: 16px; margin-bottom: 20px;">
             <strong style="color: #ff9800;">📺 How to Watch Your Stream:</strong>
             <div style="margin-top: 8px; font-size: 14px; line-height: 1.6;">
                 <strong>VLC Player (Recommended):</strong><br>
                 Open VLC → Media → Open Network Stream<br>
-                URL: <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 3px;">rtmp://${serverInfo.localIP}:1935/live/YOUR_STREAM_KEY</code>
+                URL: <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 3px;">rtmp://${serverInfo && serverInfo.localIP ? serverInfo.localIP : 'YOUR_IP'}:1935/live/YOUR_STREAM_KEY</code>
                 <br><br>
                 <details style="cursor: pointer;">
                     <summary>Or use OBS Preview / FFplay</summary>
