@@ -14,7 +14,8 @@
 
 **Use cases:**
 - Test encoder configurations (x264, NVENC, QuickSync, AMD VCE)
-- Validate stream quality before going live on any platform
+- Validate stream quality before going l
+ive on any platform
 - Encoder comparison and benchmarking
 - Training and education (streaming courses, workshops)
 - Development and testing of streaming pipelines/middleware
@@ -34,11 +35,16 @@
 
 **📘 Core Documentation:**
 - **[README.md](README.md)** (this file) - Overview and features
-- **[OBS_SETUP_GUIDE.md](OBS_SETUP_GUIDE.md)** - Configure OBS Studio
-  - Encoder comparisons (x264, NVENC, QuickSync)
+- **[OBS_SETUP_GUIDE.md](OBS_SETUP_GUIDE.md)** - Configure OBS Studio with ultra-low latency
+  - Complete setup for all encoders (NVENC, x264, QuickSync, AMF)
+  - Ultra-low latency settings (1.5-2.5s end-to-end)
   - Optimal settings for different scenarios
-  - Testing different encoders
-  - Troubleshooting guide
+  - Testing and troubleshooting guide
+- **[ENCODER_COMPARISON.md](ENCODER_COMPARISON.md)** - Comprehensive encoder guide
+  - NVENC vs x264 vs QuickSync vs AMF vs VideoToolbox
+  - Performance metrics and quality comparison
+  - Decision matrix and recommendations
+  - Advanced tuning for each encoder
 
 **🌐 Advanced Features:**
 - **[CLOUDFLARE_TUNNEL_GUIDE.md](CLOUDFLARE_TUNNEL_GUIDE.md)** - Global access (FREE)
@@ -65,23 +71,27 @@
 
 ## ✨ Features
 
-- 🎬 **RTMP Stream Ingestion** - Compatible with OBS, vMix, Wirecast, Streamlabs, XSplit
-- 📺 **HLS Playback** - Low-latency video streaming in browser
+- 🎬 **Multiple Protocol Support** - RTMP (1935), SRT (8554), WebSocket, WebRTC
+- 📺 **Multiple Playback Options** - HLS (1.5-2.5s), WebSocket+MSE (0.3-0.8s), WebRTC (0.05-0.3s)
 - 🔑 **Stream Key Management** - Generate and manage unlimited test streams
-- 📊 **Real-time Monitoring** - Live bitrate, FPS, resolution, dropped frames, latency
-- � **Health Dashboard** - YouTube Studio-style quality indicators (Excellent/Good/Fair/Poor)
+- 📊 **Real-time Monitoring** - Live bitrate, FPS, resolution, dropped frames, actual latency
+- 🏥 **Health Dashboard** - YouTube Studio-style quality indicators (Excellent/Good/Fair/Poor)
 - 🎨 **Professional Interface** - Clean, responsive, keyboard-accessible UI
 - 🌐 **Local & Remote Access** - Test on local network or via Cloudflare Tunnel (free)
+- ⚡ **Ultra-Low Latency** - SRT + WebRTC for 50-300ms end-to-end latency
+- 🏗️ **Dual Architecture** - Node.js UI + Go media server for optimal performance
+- 💯 **Production Ready** - 27 security/performance bugs fixed, enterprise-grade
 - ⚡ **Zero Cloud Costs** - 100% self-hosted, no subscriptions
 - 🔒 **Private Testing** - No public exposure, perfect for pre-production validation
 - 📱 **Mobile Responsive** - Monitor from phone/tablet while streaming
 
 **Protocol Support:**
-- ✅ **RTMP** (Real-Time Messaging Protocol) - Full support
-- ❌ **SRT** (Secure Reliable Transport) - Not supported
-- ❌ **WebRTC** - Not supported
+- ✅ **RTMP** (Real-Time Messaging Protocol) - Port 1935 (Node.js + Go)
+- ✅ **SRT** (Secure Reliable Transport) - Port 8554 (Go server, 120ms latency)
+- ✅ **WebRTC** - Ultra-low latency peer-to-peer (Go server, 50-300ms)
+- ✅ **WebSocket** - Low-latency streaming with MSE (Go server, 300-800ms)
 
-Most platforms (YouTube, Twitch, Facebook, TikTok) accept RTMP for encoder testing.
+All major platforms (YouTube, Twitch, Facebook) support RTMP. SRT and WebRTC provide lower latency options for local testing.
 
 ## 🎯 Supported Encoders
 

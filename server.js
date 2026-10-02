@@ -198,12 +198,13 @@ const config = {
       {
         app: 'live',
         hls: true,
-        // Ultra-low latency HLS settings
-        hlsFlags: '[hls_time=1:hls_list_size=2:hls_flags=delete_segments+independent_segments]',
-        // hls_time=1: 1-second segments (lower latency, was 2)
-        // hls_list_size=2: Keep only 2 segments in playlist (minimum for playback)
+        // EXTREME low latency HLS settings (near-zero)
+        hlsFlags: '[hls_time=1:hls_list_size=2:hls_flags=delete_segments+independent_segments+omit_endlist]',
+        // hls_time=1: 1-second segments (matches OBS keyframe=1)
+        // hls_list_size=2: Keep only 2 segments (minimum)
         // delete_segments: Remove old segments
-        // independent_segments: Better seeking and lower latency
+        // independent_segments: Every segment is independent
+        // omit_endlist: Signals live stream for immediate playback
         hlsKeep: false, // Auto-cleanup segments when stream ends
         dash: false
       }

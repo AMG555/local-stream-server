@@ -5,6 +5,14 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# Go dependencies and binaries
+go-media-server/go-media-server.exe
+go-media-server/go-media-server
+go/
+bin/
+*.exe
+!install-ffmpeg.bat
+
 # Environment variables
 .env
 .env.local
@@ -87,3 +95,4 @@ wrangler.toml.local
 # System
 *.stackdump
 core
+node_modules

@@ -1,0 +1,17 @@
+# Go Media Server Configuration
+
+rtmp:
+  port: 1935
+  chunk_size: 4096
+  gop_cache: true
+  ping_timeout: 60
+
+srt:
+  port: 8554
+  latency: 120           # milliseconds (ultra-low latency)
+  max_bandwidth: 0       # 0 = unlimited
+  overhead_bw: 25        # percentage
+
+api:
+  port: 8084
+  host: "0.0.0.0"

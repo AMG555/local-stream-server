@@ -672,8 +672,9 @@ function updateStreamStats(key, stats) {
     const playerKey = document.getElementById('videoPlayer')?.dataset.streamKey;
     
     if (playerKey === key) {
-        const latency = calculateLatency(stats);
-        const latencyClass = latency < 2 ? 'low' : latency < 5 ? 'medium' : 'high';
+        const latency = calculateLatency();
+        const latencyText = latency !== null ? `${latency.toFixed(1)}s latency` : '-- latency';
+        const latencyClass = latency === null ? 'low' : latency < 2 ? 'low' : latency < 5 ? 'medium' : 'high';
         
         document.getElementById('playerBitrate').textContent = `${stats.bitrate} kbps`;
         document.getElementById('playerFps').textContent = `${stats.fps} fps`;
@@ -687,13 +688,13 @@ function updateStreamStats(key, stats) {
             latencyBadge.className = `stat-item latency-badge latency-${latencyClass}`;
             latencyBadge.innerHTML = `
                 <i class="fas fa-tachometer-alt"></i>
-                <span id="playerLatency">${latency.toFixed(1)}s latency</span>
+                <span id="playerLatency">${latencyText}</span>
             `;
             statsOverlay.appendChild(latencyBadge);
         } else {
             const latencyEl = document.getElementById('playerLatency');
             if (latencyEl) {
-                latencyEl.textContent = `${latency.toFixed(1)}s latency`;
+                latencyEl.textContent = latencyText;
                 latencyEl.parentElement.className = `stat-item latency-badge latency-${latencyClass}`;
             }
         }
@@ -715,10 +716,13 @@ function updateStreamStats(key, stats) {
     });
 }
 
-function calculateLatency(stats) {
-    // Simulated latency based on bitrate stability
-    // In real implementation, this would come from HLS.js or player metrics
-    return 1.5 + (Math.random() * 1.5);
+function calculateLatency() {
+    // REAL latency from HLS.js player: difference between live edge and current position
+    const video = document.getElementById('videoPlayer');
+    if (hlsInstance && video && video.duration > 0 && isFinite(video.duration)) {
+        return Math.max(0, video.duration - video.currentTime);
+    }
+    return null; // No data yet
 }
 
 // Modal functions
@@ -793,31 +797,31 @@ function playStream(streamKey, title) {
             enableWorker: true,
             lowLatencyMode: true,
             
-            // Aggressive buffering for lowest latency
-            backBufferLength: 0,           // No back buffer (discard old segments immediately)
-            maxBufferLength: 4,            // Only buffer 4 seconds ahead (was 30)
-            maxMaxBufferLength: 8,         // Max 8 seconds buffer (was 60)
-            maxBufferSize: 8 * 1000 * 1000, // 8MB buffer size
-            maxBufferHole: 0.1,            // Small gaps tolerance
+            // EXTREME buffering for near-zero latency
+            backBufferLength: 0,           // No back buffer
+            maxBufferLength: 2,            // 2 second buffer (matches 2 segments)
+            maxMaxBufferLength: 3,         // Max 3 seconds
+            maxBufferSize: 3 * 1000 * 1000, // 3MB buffer
+            maxBufferHole: 0.1,            // Small gaps
             
-            // Live edge sync - stay as close as possible
-            liveSyncDuration: 1,           // Stay 1 second from live (was 3)
-            liveMaxLatencyDuration: 3,     // Max 3 seconds behind (was 10)
+            // Live edge sync - GLUED to live
+            liveSyncDuration: 0.5,         // 0.5 seconds from live
+            liveMaxLatencyDuration: 2,     // Max 2 seconds behind
             liveDurationInfinity: true,
             
-            // Faster segment loading
-            manifestLoadingTimeOut: 2000,  // 2s timeout for manifest
+            // Faster segment loading (EXTREME)
+            manifestLoadingTimeOut: 1000,  // 1s timeout
             manifestLoadingMaxRetry: 3,
-            manifestLoadingRetryDelay: 500,
+            manifestLoadingRetryDelay: 200,
             
-            // Level/fragment loading optimization
-            levelLoadingTimeOut: 2000,
+            // Level/fragment loading optimization (EXTREME)
+            levelLoadingTimeOut: 1000,
             levelLoadingMaxRetry: 2,
-            levelLoadingRetryDelay: 500,
+            levelLoadingRetryDelay: 200,
             
-            fragLoadingTimeOut: 2000,
+            fragLoadingTimeOut: 1000,
             fragLoadingMaxRetry: 3,
-            fragLoadingRetryDelay: 500,
+            fragLoadingRetryDelay: 200,
             
             // Start playback faster
             startPosition: -1,             // Start at live edge
@@ -905,11 +909,20 @@ function playStream(streamKey, title) {
                 const goLiveBtn = document.getElementById('goLiveBtn');
                 const liveIndicator = document.getElementById('liveIndicator');
                 
-                if (lag > 3) { // If more than 3 seconds behind, show "Go Live" button (was 5)
+                // Update real-time latency display
+                const latencyEl = document.getElementById('playerLatency');
+                if (latencyEl) {
+                    const latency = Math.max(0, lag);
+                    latencyEl.textContent = `${latency.toFixed(1)}s latency`;
+                    const latencyClass = latency < 2 ? 'low' : latency < 5 ? 'medium' : 'high';
+                    latencyEl.parentElement.className = `stat-item latency-badge latency-${latencyClass}`;
+                }
+                
+                if (lag > 2) { // If more than 2 seconds behind, show button
                     if (goLiveBtn) goLiveBtn.style.display = 'flex';
                     if (liveIndicator) liveIndicator.style.opacity = '0.5';
                     
-                    if (lag > 8) { // If more than 8 seconds behind, auto-jump to live (was 20)
+                    if (lag > 4) { // If more than 4 seconds behind, auto-jump
                         console.log('Auto-jumping to live, was', lag.toFixed(1), 'seconds behind');
                         seekToLive();
                     }
@@ -918,7 +931,7 @@ function playStream(streamKey, title) {
                     if (liveIndicator) liveIndicator.style.opacity = '1';
                 }
             }
-        }, 500); // Check every 0.5 seconds (was 1000ms) for faster response
+        }, 200); // Check every 0.2 seconds
         
         // Store interval for cleanup
         video.dataset.liveCheckInterval = liveCheckInterval;
@@ -942,7 +955,7 @@ function seekToLive() {
     const liveIndicator = document.getElementById('liveIndicator');
     
     if (video.duration > 0 && isFinite(video.duration)) {
-        video.currentTime = video.duration - 0.1; // Stay 0.1s from absolute end (was 0.5s - ultra low latency!)
+        video.currentTime = video.duration - 0.1; // Stay 0.1s from end
         console.log('Jumped to LIVE edge');
         
         // Hide "Go Live" button, show LIVE indicator
