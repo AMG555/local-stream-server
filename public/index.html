@@ -354,6 +354,10 @@
             </div>
             <div class="modal-body">
                 <video id="videoPlayer" class="video-player" controls autoplay muted></video>
+                <!-- YouTube-style "Go Live" button -->
+                <button id="goLiveBtn" class="go-live-btn" onclick="seekToLive()" style="display: none;">
+                    <i class="fas fa-dot-circle"></i> GO LIVE
+                </button>
                 <div class="stream-stats-overlay" id="streamStatsOverlay">
                     <div class="stat-item">
                         <i class="fas fa-signal"></i>
@@ -370,6 +374,11 @@
                     <div class="stat-item">
                         <i class="fas fa-clock"></i>
                         <span id="playerDuration">0s</span>
+                    </div>
+                    <!-- Live indicator -->
+                    <div class="stat-item" id="liveIndicator" style="background: rgba(255, 0, 0, 0.8); padding: 4px 12px; border-radius: 4px;">
+                        <i class="fas fa-circle" style="color: #fff; font-size: 8px; margin-right: 4px;"></i>
+                        <span style="color: #fff; font-weight: bold;">LIVE</span>
                     </div>
                 </div>
             </div>

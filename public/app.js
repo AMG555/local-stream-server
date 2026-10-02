@@ -791,24 +791,105 @@ function playStream(streamKey, title) {
         hlsInstance = new Hls({
             enableWorker: true,
             lowLatencyMode: true,
-            backBufferLength: 90
+            backBufferLength: 90,
+            liveSyncDuration: 3,        // Stay 3 seconds from live edge
+            liveMaxLatencyDuration: 10, // Max 10 seconds behind live
+            liveDurationInfinity: true, // Always seek to live on start
+            maxBufferLength: 30,
+            maxMaxBufferLength: 60
         });
         
         hlsInstance.loadSource(playbackUrl);
         hlsInstance.attachMedia(video);
         
         hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-            video.play();
+            // Always jump to LIVE edge (like YouTube)
+            seekToLive();
+            video.play().catch(err => {
+                console.warn('Autoplay blocked:', err);
+                showWarningNotification('Click play button to start stream');
+            });
         });
         
+        // Auto-reconnect on errors (like YouTube does)
         hlsInstance.on(Hls.Events.ERROR, (event, data) => {
+            console.error('HLS error:', data.type, data.details);
+            
             if (data.fatal) {
-                console.error('HLS error:', data);
+                switch(data.type) {
+                    case Hls.ErrorTypes.NETWORK_ERROR:
+                        console.log('Network error, attempting to recover...');
+                        showWarningNotification('Connection lost, reconnecting...');
+                        // Try to recover from network error
+                        setTimeout(() => {
+                            if (hlsInstance) {
+                                hlsInstance.startLoad();
+                                seekToLive(); // Jump back to live after reconnect
+                            }
+                        }, 1000);
+                        break;
+                        
+                    case Hls.ErrorTypes.MEDIA_ERROR:
+                        console.log('Media error, attempting to recover...');
+                        if (hlsInstance) {
+                            hlsInstance.recoverMediaError();
+                            seekToLive(); // Jump back to live after recover
+                        }
+                        break;
+                        
+                    default:
+                        console.error('Fatal error, cannot recover');
+                        showErrorNotification('Stream playback failed');
+                        if (hlsInstance) {
+                            hlsInstance.destroy();
+                            hlsInstance = null;
+                        }
+                        break;
+                }
             }
         });
+        
+        // When video is paused for too long, jump back to live on play (YouTube behavior)
+        video.addEventListener('play', () => {
+            if (hlsInstance && video.duration > 0) {
+                const lag = video.duration - video.currentTime;
+                if (lag > 15) { // If more than 15 seconds behind
+                    console.log('Jumping to live edge, was', lag.toFixed(1), 'seconds behind');
+                    seekToLive();
+                }
+            }
+        });
+        
+        // Keep checking if we're drifting from live
+        let liveCheckInterval = setInterval(() => {
+            if (hlsInstance && video.duration > 0 && !video.paused) {
+                const lag = video.duration - video.currentTime;
+                const goLiveBtn = document.getElementById('goLiveBtn');
+                const liveIndicator = document.getElementById('liveIndicator');
+                
+                if (lag > 5) { // If more than 5 seconds behind, show "Go Live" button
+                    if (goLiveBtn) goLiveBtn.style.display = 'flex';
+                    if (liveIndicator) liveIndicator.style.opacity = '0.5';
+                    
+                    if (lag > 20) { // If more than 20 seconds behind, auto-jump to live
+                        console.log('Auto-jumping to live, was', lag.toFixed(1), 'seconds behind');
+                        seekToLive();
+                    }
+                } else { // We're at live edge
+                    if (goLiveBtn) goLiveBtn.style.display = 'none';
+                    if (liveIndicator) liveIndicator.style.opacity = '1';
+                }
+            }
+        }, 1000); // Check every second
+        
+        // Store interval for cleanup
+        video.dataset.liveCheckInterval = liveCheckInterval;
+        
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        // Safari native HLS
         video.src = playbackUrl;
         video.addEventListener('loadedmetadata', () => {
+            seekToLive();
             video.play();
         });
     }
@@ -816,15 +897,49 @@ function playStream(streamKey, title) {
     document.getElementById('videoPlayerModal').classList.add('active');
 }
 
+// Helper function to seek to live edge (YouTube-style)
+function seekToLive() {
+    const video = document.getElementById('videoPlayer');
+    const goLiveBtn = document.getElementById('goLiveBtn');
+    const liveIndicator = document.getElementById('liveIndicator');
+    
+    if (video.duration > 0 && isFinite(video.duration)) {
+        video.currentTime = video.duration - 0.5; // Stay 0.5s from absolute end
+        console.log('Jumped to LIVE edge');
+        
+        // Hide "Go Live" button, show LIVE indicator
+        if (goLiveBtn) goLiveBtn.style.display = 'none';
+        if (liveIndicator) liveIndicator.style.opacity = '1';
+        
+        // Ensure video is playing
+        if (video.paused) {
+            video.play().catch(err => console.warn('Play failed:', err));
+        }
+    }
+}
+
 function hideVideoPlayer() {
     const video = document.getElementById('videoPlayer');
+    const goLiveBtn = document.getElementById('goLiveBtn');
+    
     video.pause();
     video.src = '';
+    
+    // Clear live check interval
+    if (video.dataset.liveCheckInterval) {
+        clearInterval(parseInt(video.dataset.liveCheckInterval));
+        delete video.dataset.liveCheckInterval;
+    }
+    
+    // Hide "Go Live" button
+    if (goLiveBtn) goLiveBtn.style.display = 'none';
+    
     // FIX: destroy HLS instance to prevent memory leak (BUG #6)
     if (hlsInstance) {
         hlsInstance.destroy();
         hlsInstance = null;
     }
+    
     document.getElementById('videoPlayerModal').classList.remove('active');
 }
 
