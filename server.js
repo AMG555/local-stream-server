@@ -26,8 +26,8 @@ const streamStats = new Map();
 // FFmpeg detection
 function detectFFmpeg() {
   const possiblePaths = [
+    'C:/ffmpeg/bin/ffmpeg.exe', // Our install location (check first)
     'ffmpeg', // In PATH
-    'C:/ffmpeg/bin/ffmpeg.exe',
     '/usr/bin/ffmpeg',
     '/usr/local/bin/ffmpeg',
     path.join(process.env.PROGRAMFILES || 'C:/Program Files', 'ffmpeg', 'bin', 'ffmpeg.exe')
