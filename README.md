@@ -88,7 +88,7 @@
 ### Prerequisites
 
 - Node.js (v14 or higher)
-- FFmpeg installed on your system
+- FFmpeg (optional but recommended for HLS playback)
 
 ### Installation
 
@@ -108,6 +108,22 @@ http://localhost:8000
 ```
 
 The server will display your local IP address. Use this to access from other devices on the same network.
+
+⚠️ **FFmpeg Warning?** HLS playback requires FFmpeg. RTMP ingestion works without it.
+
+**Quick FFmpeg Install:**
+```bash
+# Windows - Run installer script
+install-ffmpeg.bat
+
+# Mac
+brew install ffmpeg
+
+# Linux
+sudo apt install ffmpeg
+```
+
+Manual Windows install: Download from [gyan.dev/ffmpeg](https://www.gyan.dev/ffmpeg/builds/), extract to `C:\ffmpeg`, add `C:\ffmpeg\bin` to PATH.
 
 ### 🌐 Public Access with Cloudflare Tunnel (FREE)
 
