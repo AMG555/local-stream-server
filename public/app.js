@@ -26,19 +26,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 // Socket listeners
-function setupSocketListeners() {
-    socket.on('connect', () => {
+const socketHandlers = {
+    connect: () => {
         console.log('Connected to server');
         showConnectionStatus(true);
-    });
-
-    socket.on('disconnect', () => {
+    },
+    disconnect: () => {
         console.log('Disconnected from server');
         showConnectionStatus(false);
         showWarningNotification('Lost connection to server. Reconnecting...');
-    });
-
-    socket.on('activeStreams', (streams) => {
+    },
+    activeStreams: (streams) => {
         renderLiveStreams(streams);
         // Sync allStreams live status
         if (allStreams.length > 0) {
@@ -47,22 +45,33 @@ function setupSocketListeners() {
             renderAllStreams();
             updateStats();
         }
-    });
-
-    socket.on('streamStarted', (stream) => {
+    },
+    streamStarted: (stream) => {
         console.log('Stream started:', stream);
         loadAllStreams();
         showSuccessNotification(`🔴 ${stream.title} is now live!`);
-    });
-
-    socket.on('streamEnded', (data) => {
+    },
+    streamEnded: (data) => {
         console.log('Stream ended:', data);
         loadAllStreams();
         showNotification('Stream ended', 'info');
-    });
-
-    socket.on('streamStats', (data) => {
+    },
+    streamStats: (data) => {
         updateStreamStats(data.key, data.stats);
+    }
+};
+
+function setupSocketListeners() {
+    // Register all handlers
+    Object.entries(socketHandlers).forEach(([event, handler]) => {
+        socket.on(event, handler);
+    });
+}
+
+function cleanupSocketListeners() {
+    // Remove all handlers
+    Object.entries(socketHandlers).forEach(([event, handler]) => {
+        socket.off(event, handler);
     });
 }
 
@@ -493,7 +502,7 @@ function renderLiveStreams(streams) {
         const safeKey = escHtml(stream.key);
         
         return `
-            <div class="stream-card" onclick="playStream('${safeKey}', '${safeTitle}')" role="button" tabindex="0" aria-label="Watch ${safeTitle}">
+            <div class="stream-card" data-stream-key="${safeKey}" data-stream-title="${safeTitle}" role="button" tabindex="0" aria-label="Watch ${safeTitle}">
                 <div class="stream-thumbnail live">
                     <div class="live-badge">LIVE</div>
                     <i class="fas fa-broadcast-tower"></i>
@@ -512,6 +521,23 @@ function renderLiveStreams(streams) {
             </div>
         `;
     }).join('');
+    
+    // Add event delegation for stream cards
+    container.querySelectorAll('.stream-card').forEach(card => {
+        card.addEventListener('click', function() {
+            const key = this.dataset.streamKey;
+            const title = this.dataset.streamTitle;
+            playStream(key, title);
+        });
+        card.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                const key = this.dataset.streamKey;
+                const title = this.dataset.streamTitle;
+                playStream(key, title);
+            }
+        });
+    });
 }
 
 function getStreamQuality(streamKey) {
@@ -548,7 +574,7 @@ function renderAllStreams() {
         const safeTitle = escHtml(stream.title);
         const safeKey = escHtml(stream.key);
         return `
-        <div class="stream-list-item">
+        <div class="stream-list-item" data-stream-key="${safeKey}" data-stream-title="${safeTitle}">
             <div class="stream-list-info">
                 <div class="stream-list-title">
                     ${safeTitle}
@@ -564,19 +590,40 @@ function renderAllStreams() {
             </div>
             <div class="stream-list-actions">
                 ${stream.isLive ? `
-                    <button class="btn-primary" onclick="playStream('${safeKey}', '${safeTitle}')">
+                    <button class="btn-primary btn-watch-stream">
                         <i class="fas fa-play"></i> Watch
                     </button>
                 ` : ''}
-                <button class="btn-secondary" onclick="showStreamDetailsById('${safeKey}')">
+                <button class="btn-secondary btn-stream-details">
                     <i class="fas fa-info-circle"></i> Details
                 </button>
-                <button class="btn-icon" onclick="deleteStream('${safeKey}')" aria-label="Delete ${safeTitle}">
+                <button class="btn-icon btn-delete-stream" aria-label="Delete ${safeTitle}">
                     <i class="fas fa-trash"></i>
                 </button>
             </div>
         </div>
     `}).join('');
+    
+    // Add event delegation for stream list actions
+    container.querySelectorAll('.stream-list-item').forEach(item => {
+        const key = item.dataset.streamKey;
+        const title = item.dataset.streamTitle;
+        
+        const watchBtn = item.querySelector('.btn-watch-stream');
+        if (watchBtn) {
+            watchBtn.addEventListener('click', () => playStream(key, title));
+        }
+        
+        const detailsBtn = item.querySelector('.btn-stream-details');
+        if (detailsBtn) {
+            detailsBtn.addEventListener('click', () => showStreamDetailsById(key));
+        }
+        
+        const deleteBtn = item.querySelector('.btn-delete-stream');
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', () => deleteStream(key));
+        }
+    });
 }
 
 function updateStreamStats(key, stats) {
@@ -911,3 +958,40 @@ window.onclick = function(event) {
 
 // Refresh streams periodically - handled by pollInterval in DOMContentLoaded
 // (removed duplicate 30s interval that was firing at parse time)
+
+// Global error handlers
+window.addEventListener('unhandledrejection', (event) => {
+    console.error('Unhandled promise rejection:', event.reason);
+    showErrorNotification('An unexpected error occurred');
+    event.preventDefault();
+});
+
+window.addEventListener('error', (event) => {
+    console.error('Global error:', event.error);
+    // Don't show notification for script load errors
+    if (!event.filename) {
+        showErrorNotification('An error occurred');
+    }
+});
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', () => {
+    // Clear intervals
+    if (pollInterval) {
+        clearInterval(pollInterval);
+    }
+    
+    // Destroy HLS instance
+    if (hlsInstance) {
+        hlsInstance.destroy();
+        hlsInstance = null;
+    }
+    
+    // Remove socket listeners
+    cleanupSocketListeners();
+    
+    // Disconnect socket
+    if (socket && socket.connected) {
+        socket.disconnect();
+    }
+});

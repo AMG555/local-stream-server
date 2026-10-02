@@ -88,6 +88,12 @@ function saveStreamKeys() {
 const FFMPEG_PATH = detectFFmpeg();
 loadStreamKeys();
 
+// UUID validation helper
+function isValidUUID(str) {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
+}
+
 // Get local IP address
 function getLocalIP() {
   const interfaces = os.networkInterfaces();
@@ -127,7 +133,7 @@ const config = {
         app: 'live',
         hls: true,
         hlsFlags: '[hls_time=2:hls_list_size=3:hls_flags=delete_segments]',
-        hlsKeep: true,
+        hlsKeep: false, // Auto-cleanup segments when stream ends
         dash: false
       }
     ]
@@ -155,15 +161,28 @@ nms.on('prePublish', (id, StreamPath, args) => {
   // Extract stream key from path (format: /live/STREAM_KEY)
   const streamKey = StreamPath.split('/')[2];
   
-  // Validate stream key
-  if (!streamKeys.has(streamKey)) {
+  // Validate stream key format and existence
+  if (!streamKey || !isValidUUID(streamKey) || !streamKeys.has(streamKey)) {
     console.log('[Reject] Invalid stream key:', streamKey);
     const session = nms.getSession(id);
-    session.reject();
+    if (session) {
+      session.reject();
+    }
     return;
   }
   
   const streamInfo = streamKeys.get(streamKey);
+  
+  // Prevent race condition: reject if stream is already live
+  if (streamInfo.isLive && activeStreams.has(streamKey)) {
+    console.log('[Reject] Stream already active:', streamKey);
+    const session = nms.getSession(id);
+    if (session) {
+      session.reject();
+    }
+    return;
+  }
+  
   streamInfo.isLive = true;
   streamInfo.startTime = Date.now();
   streamInfo.sessionId = id;
@@ -194,7 +213,7 @@ nms.on('donePublish', (id, StreamPath, args) => {
   
   const streamKey = StreamPath.split('/')[2];
   
-  if (streamKeys.has(streamKey)) {
+  if (streamKey && isValidUUID(streamKey) && streamKeys.has(streamKey)) {
     const streamInfo = streamKeys.get(streamKey);
     streamInfo.isLive = false;
     streamInfo.endTime = Date.now();
@@ -259,7 +278,7 @@ app.get('/api/streams/active', (req, res) => {
 app.get('/api/stream/:key', (req, res) => {
   const { key } = req.params;
   
-  if (!streamKeys.has(key)) {
+  if (!key || !isValidUUID(key) || !streamKeys.has(key)) {
     return res.status(404).json({ error: 'Stream key not found' });
   }
   
@@ -277,7 +296,7 @@ app.get('/api/stream/:key', (req, res) => {
 app.delete('/api/stream/:key', (req, res) => {
   const { key } = req.params;
   
-  if (!streamKeys.has(key)) {
+  if (!key || !isValidUUID(key) || !streamKeys.has(key)) {
     return res.status(404).json({ error: 'Stream key not found' });
   }
   
@@ -331,7 +350,7 @@ io.on('connection', (socket) => {
 // real-time encoder stats without FFmpeg. When FFmpeg is available these would come
 // from parsing FFmpeg stderr. For encoder testing purposes, the connection stability
 // and stream health (connected/disconnected, duration) ARE real.
-setInterval(() => {
+const statsInterval = setInterval(() => {
   activeStreams.forEach((stream, key) => {
     const duration = Date.now() - stream.startTime;
     
@@ -370,4 +389,54 @@ server.listen(HTTP_PORT, () => {
   console.log(`      Server: rtmp://${LOCAL_IP}:${RTMP_PORT}/live`);
   console.log('      Stream Key: [your generated key]');
   console.log('===========================================\n');
+});
+
+// Graceful shutdown handler
+function gracefulShutdown(signal) {
+  console.log(`\n${signal} received. Starting graceful shutdown...`);
+  
+  // Stop accepting new connections
+  server.close(() => {
+    console.log('HTTP server closed');
+  });
+  
+  // Stop node-media-server (this will kill all FFmpeg child processes)
+  try {
+    if (nms && nms.stop) {
+      nms.stop();
+      console.log('RTMP server stopped');
+    }
+  } catch (err) {
+    console.error('Error stopping RTMP server:', err);
+  }
+  
+  // Save stream keys before exit
+  saveStreamKeys();
+  console.log('Stream keys saved');
+  
+  // Clear all intervals
+  if (statsInterval) clearInterval(statsInterval);
+  
+  // Disconnect all socket clients
+  io.close(() => {
+    console.log('Socket.IO closed');
+  });
+  
+  console.log('Graceful shutdown complete');
+  process.exit(0);
+}
+
+// Capture termination signals
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
+// Handle unexpected errors
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+  gracefulShutdown('UNCAUGHT_EXCEPTION');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't exit on unhandled rejections, just log them
 });
