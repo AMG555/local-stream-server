@@ -5,6 +5,26 @@ All notable changes to Local Stream Server will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.3] - 2026-02-10
+
+### 🐛 Critical Bug Fixes
+
+#### Fixed
+- **CRITICAL**: Graceful shutdown race condition - async callbacks now properly awaited with Promise.all() and 5-second timeout
+- **CRITICAL**: Uptime timer memory leak - interval now properly tracked and cleared on page unload
+- **CRITICAL**: Server crash on corrupted data - added Array.isArray() validation in loadStreamKeys() before forEach
+- **HIGH**: Session lifecycle race - added activeStreams check and sessionId null validation in delete endpoint
+- **HIGH**: Event listener memory leak - DOM nodes now cloned to remove old listeners before re-attaching
+- **MEDIUM**: Slow server startup - reduced FFmpeg detection timeout from 3000ms to 1000ms
+- **MEDIUM**: Poor error handling - added HTTP status checks and user-friendly error messages in deleteStream()
+- **MEDIUM**: Global event listener cleanup - keyboardHandler now properly stored and removed on cleanup
+
+#### Improved
+- Memory management in long-running browser sessions
+- Server stability with malformed configuration files
+- Resource cleanup on server shutdown
+- User feedback on API failures
+
 ## [1.0.2] - 2026-02-10
 
 ### 🔒 Critical Security Updates
