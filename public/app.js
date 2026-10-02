@@ -1034,27 +1034,28 @@ function seekToLive() {
 }
 
 function hideVideoPlayer() {
-    const video = document.getElementById('videoPlayer');
+    // Tear down whichever player mode is active (HLS, flv.js WS, or WebRTC)
+    _teardownCurrentPlayer();
+
+    // Reset state
+    currentPlayingKey = null;
+    isRecording = false;
+
     const goLiveBtn = document.getElementById('goLiveBtn');
-    
-    video.pause();
-    video.src = '';
-    
-    // Clear live check interval
-    if (video.dataset.liveCheckInterval) {
-        clearInterval(parseInt(video.dataset.liveCheckInterval));
-        delete video.dataset.liveCheckInterval;
-    }
-    
-    // Hide "Go Live" button
     if (goLiveBtn) goLiveBtn.style.display = 'none';
-    
-    // FIX: destroy HLS instance to prevent memory leak (BUG #6)
-    if (hlsInstance) {
-        hlsInstance.destroy();
-        hlsInstance = null;
-    }
-    
+
+    // Reset mode buttons to HLS default for next open
+    currentPlayerMode = 'hls';
+    document.querySelectorAll('.player-mode-btn[id^="modeBtn"]').forEach(b => b.classList.remove('active'));
+    const hlsBtn = document.getElementById('modeBtnHls');
+    if (hlsBtn) hlsBtn.classList.add('active');
+
+    // Restore element visibility to HLS defaults
+    const hlsVideo = document.getElementById('videoPlayer');
+    const webrtcVid = document.getElementById('webrtcPlayer');
+    if (hlsVideo)  { hlsVideo.style.display  = 'block'; }
+    if (webrtcVid) { webrtcVid.style.display = 'none';  }
+
     document.getElementById('videoPlayerModal').classList.remove('active');
 }
 
@@ -1292,15 +1293,16 @@ function switchPlayerMode(mode, btn) {
 
     currentPlayerMode = mode;
 
-    // Show/hide the correct player element
+    // Show/hide the correct player element.
+    // Note: WS mode reuses hlsVideo (flv.js attaches to it) — wsCanvas is unused.
     const hlsVideo   = document.getElementById('videoPlayer');
     const webrtcVid  = document.getElementById('webrtcPlayer');
     const wsCanvas   = document.getElementById('wsCanvas');
     const goLiveBtn  = document.getElementById('goLiveBtn');
 
-    hlsVideo.style.display  = (mode === 'hls')    ? 'block' : 'none';
+    hlsVideo.style.display  = (mode === 'hls' || mode === 'ws') ? 'block' : 'none';
     webrtcVid.style.display = (mode === 'webrtc') ? 'block' : 'none';
-    wsCanvas.style.display  = (mode === 'ws')     ? 'block' : 'none';
+    wsCanvas.style.display  = 'none'; // flv.js uses the <video> element, not canvas
     if (goLiveBtn) goLiveBtn.style.display = 'none';
 
     // Re-start player in new mode if we were already playing something
@@ -1318,8 +1320,14 @@ function _teardownCurrentPlayer() {
     const liveCheckInterval = parseInt(hlsVideo?.dataset.liveCheckInterval);
     if (!isNaN(liveCheckInterval)) { clearInterval(liveCheckInterval); delete hlsVideo.dataset.liveCheckInterval; }
 
-    // WebSocket
+    // WebSocket / flv.js — wsPlayerConn.close() destroys the flv.js instance
     if (wsPlayerConn) { wsPlayerConn.close(); wsPlayerConn = null; }
+    // Belt-and-suspenders: destroy flvPlayerInstance directly if wsPlayerConn was already null
+    if (flvPlayerInstance) {
+        try { flvPlayerInstance.pause(); flvPlayerInstance.unload();
+              flvPlayerInstance.detachMediaElement(); flvPlayerInstance.destroy(); } catch (_) {}
+        flvPlayerInstance = null;
+    }
 
     // WebRTC
     if (webrtcPeerConn) { webrtcPeerConn.close(); webrtcPeerConn = null; }
