@@ -198,7 +198,12 @@ const config = {
       {
         app: 'live',
         hls: true,
-        hlsFlags: '[hls_time=2:hls_list_size=3:hls_flags=delete_segments]',
+        // Ultra-low latency HLS settings
+        hlsFlags: '[hls_time=1:hls_list_size=2:hls_flags=delete_segments+independent_segments]',
+        // hls_time=1: 1-second segments (lower latency, was 2)
+        // hls_list_size=2: Keep only 2 segments in playlist (minimum for playback)
+        // delete_segments: Remove old segments
+        // independent_segments: Better seeking and lower latency
         hlsKeep: false, // Auto-cleanup segments when stream ends
         dash: false
       }

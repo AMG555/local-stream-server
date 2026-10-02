@@ -789,14 +789,52 @@ function playStream(streamKey, title) {
     
     if (Hls.isSupported()) {
         hlsInstance = new Hls({
+            // Ultra-low latency configuration
             enableWorker: true,
             lowLatencyMode: true,
-            backBufferLength: 90,
-            liveSyncDuration: 3,        // Stay 3 seconds from live edge
-            liveMaxLatencyDuration: 10, // Max 10 seconds behind live
-            liveDurationInfinity: true, // Always seek to live on start
-            maxBufferLength: 30,
-            maxMaxBufferLength: 60
+            
+            // Aggressive buffering for lowest latency
+            backBufferLength: 0,           // No back buffer (discard old segments immediately)
+            maxBufferLength: 4,            // Only buffer 4 seconds ahead (was 30)
+            maxMaxBufferLength: 8,         // Max 8 seconds buffer (was 60)
+            maxBufferSize: 8 * 1000 * 1000, // 8MB buffer size
+            maxBufferHole: 0.1,            // Small gaps tolerance
+            
+            // Live edge sync - stay as close as possible
+            liveSyncDuration: 1,           // Stay 1 second from live (was 3)
+            liveMaxLatencyDuration: 3,     // Max 3 seconds behind (was 10)
+            liveDurationInfinity: true,
+            
+            // Faster segment loading
+            manifestLoadingTimeOut: 2000,  // 2s timeout for manifest
+            manifestLoadingMaxRetry: 3,
+            manifestLoadingRetryDelay: 500,
+            
+            // Level/fragment loading optimization
+            levelLoadingTimeOut: 2000,
+            levelLoadingMaxRetry: 2,
+            levelLoadingRetryDelay: 500,
+            
+            fragLoadingTimeOut: 2000,
+            fragLoadingMaxRetry: 3,
+            fragLoadingRetryDelay: 500,
+            
+            // Start playback faster
+            startPosition: -1,             // Start at live edge
+            startFragPrefetch: true,       // Prefetch first fragment
+            
+            // ABR (Adaptive Bitrate) for low latency
+            abrEwmaDefaultEstimate: 500000, // 500kbps initial estimate
+            abrBandWidthFactor: 0.8,       // Conservative bandwidth usage
+            abrBandWidthUpFactor: 0.5,     // Slower quality increase
+            
+            // Playback optimization
+            nudgeMaxRetry: 5,
+            maxFragLookUpTolerance: 0.1,
+            
+            // Error handling
+            capLevelToPlayerSize: true,
+            testBandwidth: true
         });
         
         hlsInstance.loadSource(playbackUrl);
@@ -853,7 +891,7 @@ function playStream(streamKey, title) {
         video.addEventListener('play', () => {
             if (hlsInstance && video.duration > 0) {
                 const lag = video.duration - video.currentTime;
-                if (lag > 15) { // If more than 15 seconds behind
+                if (lag > 5) { // If more than 5 seconds behind (was 15)
                     console.log('Jumping to live edge, was', lag.toFixed(1), 'seconds behind');
                     seekToLive();
                 }
@@ -867,11 +905,11 @@ function playStream(streamKey, title) {
                 const goLiveBtn = document.getElementById('goLiveBtn');
                 const liveIndicator = document.getElementById('liveIndicator');
                 
-                if (lag > 5) { // If more than 5 seconds behind, show "Go Live" button
+                if (lag > 3) { // If more than 3 seconds behind, show "Go Live" button (was 5)
                     if (goLiveBtn) goLiveBtn.style.display = 'flex';
                     if (liveIndicator) liveIndicator.style.opacity = '0.5';
                     
-                    if (lag > 20) { // If more than 20 seconds behind, auto-jump to live
+                    if (lag > 8) { // If more than 8 seconds behind, auto-jump to live (was 20)
                         console.log('Auto-jumping to live, was', lag.toFixed(1), 'seconds behind');
                         seekToLive();
                     }
@@ -880,7 +918,7 @@ function playStream(streamKey, title) {
                     if (liveIndicator) liveIndicator.style.opacity = '1';
                 }
             }
-        }, 1000); // Check every second
+        }, 500); // Check every 0.5 seconds (was 1000ms) for faster response
         
         // Store interval for cleanup
         video.dataset.liveCheckInterval = liveCheckInterval;
@@ -904,7 +942,7 @@ function seekToLive() {
     const liveIndicator = document.getElementById('liveIndicator');
     
     if (video.duration > 0 && isFinite(video.duration)) {
-        video.currentTime = video.duration - 0.5; // Stay 0.5s from absolute end
+        video.currentTime = video.duration - 0.1; // Stay 0.1s from absolute end (was 0.5s - ultra low latency!)
         console.log('Jumped to LIVE edge');
         
         // Hide "Go Live" button, show LIVE indicator
