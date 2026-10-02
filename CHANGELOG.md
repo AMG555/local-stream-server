@@ -5,6 +5,20 @@ All notable changes to Local Stream Server will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-02-10
+
+### 🔒 Security & Stability
+
+#### Fixed
+- **CRITICAL**: XSS vulnerability in stream title rendering - replaced inline `onclick` handlers with event delegation
+- **CRITICAL**: FFmpeg zombie processes - added graceful shutdown handlers for SIGINT/SIGTERM/uncaughtException
+- **HIGH**: Race condition in stream state management - prevent duplicate live streams
+- **HIGH**: Socket listener memory leak - proper cleanup on page unload  
+- **HIGH**: Insecure stream key validation - added UUID format validation across all endpoints
+- **HIGH**: HLS segment accumulation - changed `hlsKeep` to `false` for automatic cleanup
+- Added global error handlers for unhandled promise rejections
+- Enhanced resource cleanup on server shutdown
+
 ## [1.0.0] - 2024-10-01
 
 ### 🎉 Initial Release
