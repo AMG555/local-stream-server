@@ -5,6 +5,31 @@ All notable changes to Local Stream Server will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2026-02-10
+
+### ✨ YouTube-Style Live Streaming
+
+#### Added
+- **YouTube-style live behavior**: Always jumps to LIVE edge on stream start (not paused position)
+- **"GO LIVE" button**: Red pulsing button appears when viewer falls >5 seconds behind live
+- **Auto-reconnect**: Automatically recovers from network errors and jumps back to live
+- **Auto-jump to live**: Automatically seeks to live if viewer falls >20 seconds behind
+- **LIVE indicator**: Visual badge with opacity change when not at live edge
+- **Smart reconnection**: On play after pause, auto-jumps to live if >15 seconds behind
+
+#### Improved
+- HLS.js configuration: `liveSyncDuration: 3s`, `liveMaxLatencyDuration: 10s`
+- Network error recovery with automatic seek to live edge
+- Media error recovery with HLS.js `recoverMediaError()`
+- Lag checking every 1 second with UI feedback
+- Better handling of stream breaks and signal drops
+
+#### Technical
+- Player always prioritizes live content over buffered content
+- Interval-based lag monitoring with "Go Live" button toggle
+- Proper cleanup of live check intervals on player close
+- Auto-recovery handlers for NETWORK_ERROR and MEDIA_ERROR
+
 ## [1.0.3] - 2026-02-10
 
 ### 🐛 Critical Bug Fixes
