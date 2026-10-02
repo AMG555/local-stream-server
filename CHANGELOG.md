@@ -5,6 +5,33 @@ All notable changes to Local Stream Server will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - Real SRT + FLV WebSocket
+
+### ✨ Added
+
+- **Full SRT protocol** via `datarhei/gosrt` — replaces the UDP-only skeleton
+  - Real SRT handshake (versions 4 and 5), ACK/NAK, congestion control, optional AES encryption
+  - MPEG-TS demuxer: reads 188-byte TS packets, reassembles PES, classifies audio (0xC0–0xDF) / video (0xE0–0xEF) and fans out to stream manager
+  - Stream key parsed from SRT StreamID in all formats used by major encoders:
+    - `key=<uuid>` — OBS SRT / FFmpeg explicit
+    - `#!::r=live/<uuid>` — SRT Access Control (mediamtx style)
+    - raw `<uuid>` — FFmpeg default
+  - Duplicate stream rejected with `REJ_RESOURCE`; missing key rejected with `REJ_ROGUE`
+  - Latency configured from `config.yml` `srt.latency` (default 120ms)
+- **FLV-over-WebSocket** — WebSocket server now emits a proper FLV container (9-byte header + tagged frames) consumed by flv.js MSE
+- **flv.js** added to dashboard (`cdn.jsdelivr.net`) for real in-browser WebSocket playback at ~300ms latency
+
+### 🔧 Fixed
+
+- `switchPlayerMode('ws')` was hiding `<video>` and showing canvas — flv.js attaches to `<video>`; visibility logic corrected
+- `hideVideoPlayer()` now delegates to `_teardownCurrentPlayer()` — cleans up all modes (HLS, flv.js, WebRTC), resets mode buttons and `currentPlayingKey`
+- `_teardownCurrentPlayer` destroys `flvPlayerInstance` directly as belt-and-suspenders
+
+### 🔧 Go
+
+- `datarhei/gosrt v0.12.0` added as direct dependency; `go.mod` updated to Go 1.26
+
+
 ## [1.2.0] - Enterprise Hardening
 
 ### 🔒 Security Fixes
@@ -232,16 +259,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned Features
-- [ ] SRT protocol full implementation (UDP listener skeleton exists in Go server)
 - [ ] Multi-bitrate HLS transcoding (ABR ladder)
 - [ ] Docker / docker-compose single-command startup
 - [ ] RTMPS (TLS-wrapped RTMP) support
 - [ ] Chat overlay (Socket.IO room per stream key)
+- [ ] SRT → HLS re-mux (currently SRT feeds WebSocket/WebRTC only)
 
 ---
 
 ## Version History
 
+- **1.3.0** - Real SRT ingest (datarhei/gosrt, MPEG-TS demux), FLV-over-WebSocket (flv.js), player mode fixes
 - **1.2.0** - Enterprise hardening: API key auth, rate limiting, CSP, Go concurrency fixes, revoke-by-ID, delete recordings
 - **1.1.0** - Phase 2: recording, API key UI, multi-protocol player (HLS/WS/WebRTC), real NMS stats, analytics export
 - **1.0.4** - YouTube-style live edge, ultra-low latency HLS config

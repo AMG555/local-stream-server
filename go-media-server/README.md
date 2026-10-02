@@ -8,11 +8,11 @@ Handles RTMP ingest and distributes media to WebSocket and WebRTC viewers.
 | Component | Status | Notes |
 |-----------|--------|-------|
 | RTMP listener | ✅ Working | Full protocol via `yutopp/go-rtmp`; validates stream keys; fan-out to WebSocket/WebRTC consumers |
-| WebSocket server | ✅ Working | Per-connection subscription with proper unsubscribe on disconnect |
+| SRT listener | ✅ Working | Full SRT handshake via `datarhei/gosrt`; MPEG-TS demux → PES fan-out; stream key from StreamID |
+| WebSocket server | ✅ Working | FLV-over-WebSocket (flv.js MSE compatible); per-connection subscription |
 | WebRTC signaling | ✅ Working | SDP offer/answer; per-peer ICE; multiple simultaneous viewers supported |
 | REST API | ✅ Working | `/streams`, `/health`, `/streams/{key}` |
 | Stream manager | ✅ Working | Thread-safe; consumer IDs with unsubscribe; copy-on-broadcast (no lock held during I/O) |
-| SRT listener | ⚠️ Skeleton | Listens on UDP but SRT protocol not implemented |
 | Config loading | ✅ Working | `config.yml` |
 | Graceful shutdown | ✅ Working | SIGTERM/SIGINT |
 
@@ -79,8 +79,9 @@ HLS transcoding via FFmpeg for the standard ~2s latency path.
 | Path | Latency | Requires Go server |
 |------|---------|--------------------|
 | RTMP → FFmpeg → HLS → Browser | ~2s | No (Node.js only) |
-| RTMP → WebSocket → Browser | ~300ms | Yes |
+| RTMP → WebSocket (flv.js MSE) → Browser | ~300ms | Yes |
 | RTMP → WebRTC → Browser | ~50ms | Yes |
+| **SRT → MPEG-TS → WebSocket/WebRTC** | ~120ms | Yes |
 
 ## Running Both Servers
 
@@ -92,10 +93,22 @@ npm start
 cd go-media-server && .\go-media-server.exe
 ```
 
-The Node.js and Go servers share the same RTMP port (1935). 
+The Node.js and Go servers share the same RTMP port (1935).
 **Do not run both simultaneously unless you change one of the RTMP ports.**
-The intended split: Node.js handles RTMP + HLS; the Go server handles WebSocket + WebRTC only.
-In that split, set Go's RTMP port to something unused (e.g. 1936) and route OBS to Node.js.
+The intended split: Node.js handles RTMP + HLS; the Go server handles SRT + WebSocket + WebRTC.
+In that split, set Go's RTMP port to something unused (e.g. 1936) and route OBS to Node.js on 1935.
+
+**SRT ingest (Go server only, port 8554):**
+```bash
+# OBS: Settings → Stream → Service: Custom, Server: srt://YOUR_IP:8554, Stream Key: <your-key>
+# FFmpeg: ffmpeg -re -i input.mp4 -f mpegts srt://YOUR_IP:8554?streamid=key=YOUR_KEY
+# vMix: Add Input → Stream/External → SRT → srt://YOUR_IP:8554 with streamid key=YOUR_KEY
+```
+
+StreamID formats supported:
+- `key=<uuid>` — OBS SRT / FFmpeg with explicit key
+- `#!::r=live/<uuid>` — SRT Access Control (mediamtx style)
+- `<uuid>` — raw UUID (FFmpeg default)
 
 ## License
 
