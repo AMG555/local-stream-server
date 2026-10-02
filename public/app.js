@@ -14,9 +14,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     showLoadingState();
     setupSocketListeners();
     await loadServerInfo(); // Wait for server info before loading streams
-    loadAllStreams();
+    await loadAllStreams(); // Load streams (renders both Live and All tabs)
     startUptimeTimer();
     setupKeyboardShortcuts();
+    // Poll every 5s as fallback in case socket events are missed
+    setInterval(loadAllStreams, 5000);
 });
 
 // Socket listeners
@@ -34,6 +36,13 @@ function setupSocketListeners() {
 
     socket.on('activeStreams', (streams) => {
         renderLiveStreams(streams);
+        // Sync allStreams live status
+        if (allStreams.length > 0) {
+            const liveKeys = new Set(streams.map(s => s.key));
+            allStreams.forEach(s => s.isLive = liveKeys.has(s.key));
+            renderAllStreams();
+            updateStats();
+        }
     });
 
     socket.on('streamStarted', (stream) => {
@@ -75,6 +84,8 @@ function showConnectionStatus(connected) {
 
 // API calls
 async function loadServerInfo() {
+// API calls
+async function loadServerInfo() {
     try {
         const response = await fetch('/api/info');
         if (!response.ok) throw new Error('Failed to fetch server info');
@@ -89,12 +100,11 @@ async function loadServerInfo() {
         }
     } catch (error) {
         console.error('Error loading server info:', error);
-        handleConnectionError('Unable to connect to server');
-        
-        // Retry with exponential backoff
+        // Retry silently - don't destroy the UI
         if (retryCount < 3) {
             retryCount++;
-            setTimeout(() => loadServerInfo(), Math.pow(2, retryCount) * 1000);
+            await new Promise(r => setTimeout(r, Math.pow(2, retryCount) * 1000));
+            return loadServerInfo();
         }
     }
 }
@@ -165,13 +175,21 @@ async function loadAllStreams() {
         
         const data = await response.json();
         allStreams = data.streams;
+
+        // Render both tabs
         renderAllStreams();
+        // Update live streams tab with currently live streams
+        const liveStreams = allStreams.filter(s => s.isLive);
+        renderLiveStreams(liveStreams);
+
         updateStats();
         isLoading = false;
     } catch (error) {
         console.error('Error loading streams:', error);
         isLoading = false;
         showErrorNotification('Failed to load streams');
+        // Show empty state instead of broken spinner
+        renderLiveStreams([]);
     }
 }
 
