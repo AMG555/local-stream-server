@@ -702,7 +702,7 @@ function hideServerInfoModal() {
 }
 
 function playStream(streamKey, title) {
-    const playbackUrl = `http://${serverInfo.localIP}:8080/live/${streamKey}/index.m3u8`;
+    const playbackUrl = `http://${serverInfo.localIP}:8081/live/${streamKey}/index.m3u8`;
     
     document.getElementById('playerTitle').textContent = title;
     const video = document.getElementById('videoPlayer');

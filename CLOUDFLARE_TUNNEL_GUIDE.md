@@ -167,9 +167,9 @@ ingress:
   - hostname: rtmp.yourdomain.com
     service: tcp://localhost:1935
   
-  # Media server (HLS)
+  # Media server (HLS) - Changed to 8081 to avoid port conflicts
   - hostname: media.yourdomain.com
-    service: http://localhost:8080
+    service: http://localhost:8081
   
   - service: http_status:404
 ```

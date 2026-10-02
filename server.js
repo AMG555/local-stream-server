@@ -104,6 +104,7 @@ function getLocalIP() {
 const LOCAL_IP = getLocalIP();
 const HTTP_PORT = 8000;
 const RTMP_PORT = 1935;
+const MEDIA_PORT = 8081; // Changed from 8080 to avoid conflict
 
 // Node-Media-Server configuration
 const config = {
@@ -115,7 +116,7 @@ const config = {
     ping_timeout: 60
   },
   http: {
-    port: 8080,
+    port: MEDIA_PORT, // Use 8081 instead of 8080
     mediaroot: './media',
     allow_origin: '*'
   },
@@ -228,7 +229,7 @@ app.post('/api/stream/create', (req, res) => {
     success: true,
     streamKey,
     rtmpUrl: `rtmp://${LOCAL_IP}:${RTMP_PORT}/live`,
-    streamUrl: `http://${LOCAL_IP}:8080/live/${streamKey}/index.m3u8`,
+    streamUrl: `http://${LOCAL_IP}:${MEDIA_PORT}/live/${streamKey}/index.m3u8`,
     title: title || 'Untitled Stream',
     ffmpegAvailable: FFMPEG_PATH !== null
   });
@@ -268,7 +269,7 @@ app.get('/api/stream/:key', (req, res) => {
   res.json({
     stream,
     stats,
-    playbackUrl: `http://${LOCAL_IP}:8080/live/${key}/index.m3u8`
+    playbackUrl: `http://${LOCAL_IP}:${MEDIA_PORT}/live/${key}/index.m3u8`
   });
 });
 
@@ -304,7 +305,7 @@ app.get('/api/info', (req, res) => {
     localIP: LOCAL_IP,
     rtmpPort: RTMP_PORT,
     httpPort: HTTP_PORT,
-    mediaPort: 8080,
+    mediaPort: MEDIA_PORT,
     rtmpUrl: `rtmp://${LOCAL_IP}:${RTMP_PORT}/live`,
     totalStreams: streamKeys.size,
     activeStreams: activeStreams.size,
@@ -361,7 +362,7 @@ server.listen(HTTP_PORT, () => {
   console.log('===========================================');
   console.log(`📡 RTMP Server: rtmp://${LOCAL_IP}:${RTMP_PORT}/live`);
   console.log(`🌐 Web Interface: http://${LOCAL_IP}:${HTTP_PORT}`);
-  console.log(`📺 Media Server: http://${LOCAL_IP}:8080`);
+  console.log(`📺 Media Server: http://${LOCAL_IP}:${MEDIA_PORT}`);
   console.log('===========================================\n');
   console.log('📝 To stream with OBS:');
   console.log('   1. Create a stream key at the web interface');
