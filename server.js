@@ -69,7 +69,7 @@ function detectFFmpeg() {
 
   for (const ffmpegPath of possiblePaths) {
     try {
-      const result = execSync(`"${ffmpegPath}" -version`, { stdio: 'pipe', timeout: 3000 });
+      const result = execSync(`"${ffmpegPath}" -version`, { stdio: 'pipe', timeout: 1000 }); // Reduced from 3000ms
       if (result.toString().includes('ffmpeg version')) {
         console.log(`✓ FFmpeg found: ${ffmpegPath}`);
         return ffmpegPath;
@@ -95,6 +95,13 @@ function loadStreamKeys() {
   try {
     if (fs.existsSync(STORAGE_FILE)) {
       const data = JSON.parse(fs.readFileSync(STORAGE_FILE, 'utf8'));
+      
+      // Validate data is an array
+      if (!Array.isArray(data)) {
+        console.error('Invalid stream-keys.json format: expected array, got', typeof data);
+        return;
+      }
+      
       data.forEach(stream => {
         streamKeys.set(stream.key, { ...stream, isLive: false });
       });
@@ -371,12 +378,14 @@ app.delete('/api/stream/:key', deleteStreamLimiter, (req, res) => {
     return res.status(404).json({ error: 'Stream key not found' });
   }
   
-  // If stream is live, end it
-  if (activeStreams.has(key)) {
+  // If stream is live, end it (with additional activeStreams check)
+  if (activeStreams.has(key) && streamKeys.has(key)) {
     const streamInfo = streamKeys.get(key);
-    const session = nms.getSession(streamInfo.sessionId);
-    if (session) {
-      session.reject();
+    if (streamInfo.sessionId) {
+      const session = nms.getSession(streamInfo.sessionId);
+      if (session) {
+        session.reject();
+      }
     }
   }
   
@@ -463,13 +472,19 @@ server.listen(HTTP_PORT, () => {
 });
 
 // Graceful shutdown handler
-function gracefulShutdown(signal) {
+async function gracefulShutdown(signal) {
   console.log(`\n${signal} received. Starting graceful shutdown...`);
   
+  // Create promises for all async operations
+  const closePromises = [];
+  
   // Stop accepting new connections
-  server.close(() => {
-    console.log('HTTP server closed');
-  });
+  closePromises.push(new Promise((resolve) => {
+    server.close(() => {
+      console.log('HTTP server closed');
+      resolve();
+    });
+  }));
   
   // Stop node-media-server (this will kill all FFmpeg child processes)
   try {
@@ -481,7 +496,7 @@ function gracefulShutdown(signal) {
     console.error('Error stopping RTMP server:', err);
   }
   
-  // Save stream keys before exit
+  // Save stream keys before exit (synchronous, no promise needed)
   saveStreamKeys();
   console.log('Stream keys saved');
   
@@ -489,11 +504,24 @@ function gracefulShutdown(signal) {
   if (statsInterval) clearInterval(statsInterval);
   
   // Disconnect all socket clients
-  io.close(() => {
-    console.log('Socket.IO closed');
-  });
+  closePromises.push(new Promise((resolve) => {
+    io.close(() => {
+      console.log('Socket.IO closed');
+      resolve();
+    });
+  }));
   
-  console.log('Graceful shutdown complete');
+  // Wait for all async operations to complete with timeout
+  try {
+    await Promise.race([
+      Promise.all(closePromises),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Shutdown timeout')), 5000))
+    ]);
+    console.log('Graceful shutdown complete');
+  } catch (err) {
+    console.error('Shutdown timeout or error:', err);
+  }
+  
   process.exit(0);
 }
 

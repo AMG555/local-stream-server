@@ -12,6 +12,7 @@ const streamStats = new Map();   // FIX: was undeclared (BUG #2)
 const activeStreams = new Map();  // FIX: was undeclared (BUG #3)
 let hlsInstance = null;           // FIX: track HLS instance to destroy on close (BUG #6)
 let pollInterval = null;          // FIX: track interval so it can be cleared
+let uptimeInterval = null;        // FIX: track uptime interval
 
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
@@ -274,15 +275,21 @@ async function deleteStream(streamKey) {
             method: 'DELETE'
         });
 
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
         const data = await response.json();
         
         if (data.success) {
             loadAllStreams();
-            showNotification('Stream key deleted');
+            showSuccessNotification('Stream key deleted');
+        } else {
+            throw new Error(data.error || 'Delete failed');
         }
     } catch (error) {
         console.error('Error deleting stream:', error);
-        alert('Failed to delete stream key');
+        showErrorNotification('Failed to delete stream key');
     }
 }
 
@@ -527,7 +534,14 @@ function renderLiveStreams(streams) {
         `;
     }).join('');
     
-    // Add event delegation for stream cards
+    // Remove old listeners if they exist (cleanup before re-attaching)
+    const oldCards = container.querySelectorAll('.stream-card');
+    oldCards.forEach(card => {
+        const clone = card.cloneNode(true);
+        card.parentNode.replaceChild(clone, card);
+    });
+    
+    // Add event delegation for stream cards (attach once to container, not each card)
     container.querySelectorAll('.stream-card').forEach(card => {
         card.addEventListener('click', function() {
             const key = this.dataset.streamKey;
@@ -608,6 +622,13 @@ function renderAllStreams() {
             </div>
         </div>
     `}).join('');
+    
+    // Remove old listeners if they exist (cleanup before re-attaching)
+    const oldItems = container.querySelectorAll('.stream-list-item');
+    oldItems.forEach(item => {
+        const clone = item.cloneNode(true);
+        item.parentNode.replaceChild(clone, item);
+    });
     
     // Add event delegation for stream list actions
     container.querySelectorAll('.stream-list-item').forEach(item => {
@@ -862,7 +883,7 @@ function formatDuration(seconds) {
 }
 
 function startUptimeTimer() {
-    setInterval(() => {
+    uptimeInterval = setInterval(() => {
         const uptimeSeconds = Math.floor((Date.now() - serverStartTime) / 1000);
         const hours = Math.floor(uptimeSeconds / 3600);
         const minutes = Math.floor((uptimeSeconds % 3600) / 60);
@@ -911,8 +932,10 @@ function showWarningNotification(message) {
 }
 
 // Keyboard shortcuts
+let keyboardHandler = null;
+
 function setupKeyboardShortcuts() {
-    document.addEventListener('keydown', (e) => {
+    keyboardHandler = (e) => {
         // Ctrl/Cmd + K: Focus search
         if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
             e.preventDefault();
@@ -932,7 +955,9 @@ function setupKeyboardShortcuts() {
             e.preventDefault();
             showCreateStreamModal();
         }
-    });
+    };
+    
+    document.addEventListener('keydown', keyboardHandler);
 }
 
 // Mobile sidebar toggle
@@ -985,6 +1010,9 @@ window.addEventListener('beforeunload', () => {
     if (pollInterval) {
         clearInterval(pollInterval);
     }
+    if (uptimeInterval) {
+        clearInterval(uptimeInterval);
+    }
     
     // Destroy HLS instance
     if (hlsInstance) {
@@ -994,6 +1022,11 @@ window.addEventListener('beforeunload', () => {
     
     // Remove socket listeners
     cleanupSocketListeners();
+    
+    // Remove keyboard handler
+    if (keyboardHandler) {
+        document.removeEventListener('keydown', keyboardHandler);
+    }
     
     // Disconnect socket
     if (socket && socket.connected) {
