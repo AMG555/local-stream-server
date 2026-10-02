@@ -96,4 +96,3 @@ wrangler.toml.local
 # System
 *.stackdump
 core
-node_modules

@@ -178,6 +178,5 @@ module.exports = {
   generateAPIKey,
   revokeAPIKey,
   revokeAPIKeyById,
-  validateAPIKey,
   listAPIKeys
 };
