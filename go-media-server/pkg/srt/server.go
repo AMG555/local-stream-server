@@ -238,22 +238,49 @@ func readMPEGTS(r io.Reader, key string, mgr *stream.Manager) {
 }
 
 // broadcastPES classifies a PES packet as audio (stream_id 0xC0-0xDF)
-// or video (stream_id 0xE0-0xEF) and forwards it to the stream manager.
-// pid is accepted but unused — kept for future PMT-aware routing.
+// or video (stream_id 0xE0-0xEF), extracts the PTS, and forwards to the
+// stream manager. pid is accepted but unused — kept for future PMT routing.
 func broadcastPES(_ uint16, pes []byte, key string, mgr *stream.Manager) {
-	if len(pes) < 4 {
+	if len(pes) < 9 {
 		return
 	}
-	// PES header: start code prefix [0x00 0x00 0x01] + stream_id [1 byte]
+	// PES header: [0x00 0x00 0x01][stream_id][pkt_len(2)][flags(2)][hdr_data_len]
 	streamID := pes[3]
+	ts := extractPESpts(pes) // ms; 0 if not present
+
+	// Payload starts after PES header: 9 + header_data_length bytes
+	headerDataLen := int(pes[8])
+	payloadStart := 9 + headerDataLen
+	if payloadStart >= len(pes) {
+		return
+	}
+	payload := pes[payloadStart:]
 
 	switch {
 	case streamID >= 0xE0 && streamID <= 0xEF:
-		// H.264 / H.265 video elementary stream
-		mgr.BroadcastVideo(key, pes)
+		mgr.BroadcastVideo(key, payload, ts)
 	case streamID >= 0xC0 && streamID <= 0xDF:
-		// AAC / MP3 audio elementary stream
-		mgr.BroadcastAudio(key, pes)
-	// default: private/subtitle/other — discard silently
+		mgr.BroadcastAudio(key, payload, ts)
 	}
+}
+
+// extractPESpts reads the 33-bit PTS from a PES header and converts to ms.
+// Returns 0 if PTS is not present.
+func extractPESpts(pes []byte) uint32 {
+	if len(pes) < 14 {
+		return 0
+	}
+	// pes[7] flags byte 2: bits 7-6 = PTS_DTS_flags
+	ptsDtsFlags := (pes[7] >> 6) & 0x03
+	if ptsDtsFlags == 0 {
+		return 0
+	}
+	// PTS starts at pes[9]: [4-bit prefix][3-bit PTS][marker][15-bit PTS][marker][15-bit PTS][marker]
+	pts33 := (uint64(pes[9]&0x0E) << 29) |
+		(uint64(pes[10]) << 22) |
+		(uint64(pes[11]&0xFE) << 14) |
+		(uint64(pes[12]) << 7) |
+		(uint64(pes[13]&0xFE) >> 1)
+	// PTS is in 90kHz ticks; convert to ms
+	return uint32(pts33 / 90)
 }

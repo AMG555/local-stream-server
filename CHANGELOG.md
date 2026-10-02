@@ -5,6 +5,36 @@ All notable changes to Local Stream Server will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - Real WebRTC video/audio + real FLV timestamps
+
+### ✨ Fixed — WebRTC now decodes video and audio in the browser
+
+#### H.264 → RTP (RFC 6184 FU-A packetization)
+- RTMP video tags stripped of FLV header (codec byte, AVCPacketType, CompositionTime)
+- AVCC (length-prefixed) NAL units converted to Annex B (start-code prefixed) per ISO 14496-15
+- pion `H264Payloader` fragments NAL units into FU-A RTP packets at 1200-byte MTU
+- Sequence header tags (AVCPacketType=0, EOS=2) silently skipped — only NALU frames sent
+- RTP timestamp = RTMP timestamp (ms) × 90 (90kHz H.264 clock)
+
+#### AAC → RTP (RFC 6416 LATM)
+- RTMP audio tags stripped of FLV codec header (codec byte, AACPacketType)
+- AudioSpecificConfig frames (AACPacketType=0) silently skipped
+- Raw AAC frames wrapped in minimal LATM AU-Header-Section (4-byte header per RFC 6416 §6.3)
+- SDP advertises `audio/MP4A-LATM` at 44100 Hz, 2 channels — Chrome/Firefox decode natively
+- RTP timestamp = RTMP timestamp (ms) × 44.1 (44100 Hz clock)
+
+#### MediaEngine per peer-connection
+- Each `HandleOffer` builds its own `webrtc.MediaEngine` advertising PT 102 (H.264) and PT 96 (AAC-LATM)
+- Per-peer unique SSRC and starting sequence numbers (random) prevent stream mixing
+
+### ✨ Fixed — real encoder timestamps in FLV WebSocket stream
+- `stream.Manager` `BroadcastAudio`/`BroadcastVideo` now carry `MediaFrame{Data, Timestamp uint32}`
+- RTMP handler passes the `timestamp uint32` from `yutopp/go-rtmp` `OnAudio`/`OnVideo` callbacks
+- SRT handler extracts 33-bit PTS from MPEG-TS PES header and converts to ms (÷90 from 90kHz)
+- FLV WebSocket muxer uses `frame.Timestamp` directly — no more synthetic `+33ms` counter
+- flv.js latency chasing now works correctly because timestamps match real encoder cadence
+
+
 ## [1.3.0] - Real SRT + FLV WebSocket
 
 ### ✨ Added
@@ -269,6 +299,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Version History
 
+- **1.4.0** - Real WebRTC H.264 RTP packetizer + AAC-LATM, real FLV timestamps from encoder PTS
 - **1.3.0** - Real SRT ingest (datarhei/gosrt, MPEG-TS demux), FLV-over-WebSocket (flv.js), player mode fixes
 - **1.2.0** - Enterprise hardening: API key auth, rate limiting, CSP, Go concurrency fixes, revoke-by-ID, delete recordings
 - **1.1.0** - Phase 2: recording, API key UI, multi-protocol player (HLS/WS/WebRTC), real NMS stats, analytics export

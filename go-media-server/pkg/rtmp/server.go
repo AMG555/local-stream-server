@@ -144,7 +144,7 @@ func (h *connHandler) OnAudio(timestamp uint32, payload io.Reader) error {
 	if err != nil {
 		return err
 	}
-	h.streamManager.BroadcastAudio(h.activeKey, data)
+	h.streamManager.BroadcastAudio(h.activeKey, data, timestamp)
 	return nil
 }
 
@@ -157,7 +157,7 @@ func (h *connHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 	if err != nil {
 		return err
 	}
-	h.streamManager.BroadcastVideo(h.activeKey, data)
+	h.streamManager.BroadcastVideo(h.activeKey, data, timestamp)
 	return nil
 }
 

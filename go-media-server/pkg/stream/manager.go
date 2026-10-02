@@ -14,8 +14,14 @@ type StreamInfo struct {
 	Clients   int       `json:"clients"`  // connected viewers
 }
 
-// MediaConsumer is a callback that receives raw media bytes.
-type MediaConsumer func(data []byte)
+// MediaFrame carries a media payload with its presentation timestamp.
+type MediaFrame struct {
+	Data      []byte
+	Timestamp uint32 // milliseconds, from encoder
+}
+
+// MediaConsumer is a callback that receives a media frame.
+type MediaConsumer func(frame MediaFrame)
 
 // consumerEntry pairs a consumer with a unique ID so it can be removed.
 type consumerEntry struct {
@@ -180,29 +186,30 @@ func removeByID(entries []consumerEntry, id uint64) []consumerEntry {
 	return entries
 }
 
-// BroadcastAudio delivers audio data to all registered consumers.
-// It copies the consumer slice under RLock, then calls consumers without
-// holding any lock — this prevents a slow/blocked consumer from stalling
-// the broadcaster.
-func (m *Manager) BroadcastAudio(key string, data []byte) {
+// BroadcastAudio delivers an audio frame to all registered consumers.
+// The consumer slice is copied under RLock; callbacks run without any lock
+// held so a slow consumer cannot stall the broadcaster.
+func (m *Manager) BroadcastAudio(key string, data []byte, ts uint32) {
 	m.mu.RLock()
 	entries := make([]consumerEntry, len(m.audioConsumers[key]))
 	copy(entries, m.audioConsumers[key])
 	m.mu.RUnlock()
 
+	frame := MediaFrame{Data: data, Timestamp: ts}
 	for _, e := range entries {
-		e.consumer(data)
+		e.consumer(frame)
 	}
 }
 
-// BroadcastVideo delivers video data to all registered consumers.
-func (m *Manager) BroadcastVideo(key string, data []byte) {
+// BroadcastVideo delivers a video frame to all registered consumers.
+func (m *Manager) BroadcastVideo(key string, data []byte, ts uint32) {
 	m.mu.RLock()
 	entries := make([]consumerEntry, len(m.videoConsumers[key]))
 	copy(entries, m.videoConsumers[key])
 	m.mu.RUnlock()
 
+	frame := MediaFrame{Data: data, Timestamp: ts}
 	for _, e := range entries {
-		e.consumer(data)
+		e.consumer(frame)
 	}
 }

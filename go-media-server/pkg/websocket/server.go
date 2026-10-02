@@ -63,18 +63,13 @@ func (s *Server) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// monotonic timestamp counter (ms) per connection — starts at 0
-	var audioTS, videoTS uint32
-
-	// Subscribe to media — save unsubscribe functions.
-	unsubAudio := s.streamManager.SubscribeAudio(streamKey, func(data []byte) {
-		tag := makeFLVTag(8, audioTS, data) // tag type 8 = audio
-		audioTS += 23                       // ~44 Hz frames ≈ 23ms each
+	// Subscribe to media — use real encoder timestamps from MediaFrame.
+	unsubAudio := s.streamManager.SubscribeAudio(streamKey, func(frame stream.MediaFrame) {
+		tag := makeFLVTag(8, frame.Timestamp, frame.Data)
 		sendFLVTag(conn, tag)
 	})
-	unsubVideo := s.streamManager.SubscribeVideo(streamKey, func(data []byte) {
-		tag := makeFLVTag(9, videoTS, data) // tag type 9 = video
-		videoTS += 33                       // ~30 fps ≈ 33ms each
+	unsubVideo := s.streamManager.SubscribeVideo(streamKey, func(frame stream.MediaFrame) {
+		tag := makeFLVTag(9, frame.Timestamp, frame.Data)
 		sendFLVTag(conn, tag)
 	})
 
