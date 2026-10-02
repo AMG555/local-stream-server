@@ -414,15 +414,39 @@ function renderLiveStreams(streams) {
             <div class="no-streams">
                 <i class="fas fa-video-slash"></i>
                 <p>No live streams at the moment</p>
+                <p style="font-size: 14px; color: #aaa; margin: 10px 0;">
+                    Start streaming from OBS, vMix, or any RTMP encoder.<br>
+                    Your stream will appear here automatically.
+                </p>
                 <button class="btn-primary" onclick="showCreateStreamModal()">
-                    Create Your First Stream
+                    Create Stream Key
                 </button>
             </div>
         `;
         return;
     }
 
-    container.innerHTML = streams.map(stream => {
+    // Show watch instructions banner if FFmpeg not available
+    const watchBanner = !serverInfo.ffmpegAvailable ? `
+        <div style="background: rgba(255, 152, 0, 0.1); border: 1px solid rgba(255, 152, 0, 0.3); border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+            <strong style="color: #ff9800;">📺 How to Watch Your Stream:</strong>
+            <div style="margin-top: 8px; font-size: 14px; line-height: 1.6;">
+                <strong>VLC Player (Recommended):</strong><br>
+                Open VLC → Media → Open Network Stream<br>
+                URL: <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 3px;">rtmp://${serverInfo.localIP}:1935/live/YOUR_STREAM_KEY</code>
+                <br><br>
+                <details style="cursor: pointer;">
+                    <summary>Or use OBS Preview / FFplay</summary>
+                    <div style="margin-top: 8px; padding: 8px; background: rgba(0,0,0,0.2); border-radius: 4px;">
+                        <strong>OBS Preview:</strong> Add Media Source with RTMP URL<br>
+                        <strong>FFplay:</strong> <code style="background: rgba(0,0,0,0.3); padding: 2px 6px;">ffplay rtmp://IP:1935/live/KEY</code>
+                    </div>
+                </details>
+            </div>
+        </div>
+    ` : '';
+
+    container.innerHTML = watchBanner + streams.map(stream => {
         const quality = getStreamQuality(stream.key);
         const uptime = getTimeSince(stream.startTime);
         

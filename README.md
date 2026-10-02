@@ -218,10 +218,39 @@ This server replicates the YouTube Live streaming workflow:
 
 ### Step 3: Start Streaming & Monitor
 
-1. Start streaming from your encoder
-2. Web interface shows stream as **LIVE** 🔴
-3. Monitor real-time stats: bitrate, FPS, health indicators
-4. Click stream card to watch HLS playback
+1. **Start streaming** from your encoder (OBS → "Start Streaming")
+2. **Web interface shows stream as LIVE** 🔴 with real-time stats
+3. **Monitor health dashboard**: bitrate, FPS, dropped frames, connection quality
+
+### Step 4: Watch Your Stream
+
+**📊 View Stats (Works Without FFmpeg):**
+- Click "Live Streams" tab
+- See real-time metrics and health indicators
+
+**🎥 Watch Video Playback:**
+
+**Option A: Browser Playback** (Requires FFmpeg)
+- Install FFmpeg: Run `install-ffmpeg.bat` (Windows) or see README
+- Restart server: `npm start`
+- Click stream card in web interface
+- HLS player opens in browser
+
+**Option B: VLC Player** (No FFmpeg Needed)
+- Open VLC → Media → Open Network Stream
+- Enter: `rtmp://YOUR_IP:1935/live/YOUR_STREAM_KEY`
+- Click Play
+
+**Option C: OBS Preview** (No FFmpeg Needed)
+- Open second OBS instance
+- Add "Media Source"
+- URL: `rtmp://YOUR_IP:1935/live/YOUR_STREAM_KEY`
+- Uncheck "Local File"
+
+**Option D: FFplay** (If FFmpeg installed)
+```bash
+ffplay rtmp://YOUR_IP:1935/live/YOUR_STREAM_KEY
+```
 
 ## 🎮 OBS Settings for Best Quality
 

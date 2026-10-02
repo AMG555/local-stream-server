@@ -163,9 +163,41 @@ Right now you can:
 
 1. Add a source (e.g., **Display Capture** to stream your screen)
 2. Click **"Start Streaming"** (bottom right)
-3. Go to web interface in browser
-4. Click on your stream card
-5. **You're streaming!** 🎉
+3. **Stream is now live!** 🔴
+
+### Watch Your Stream
+
+**📊 View Stats (Always Works):**
+1. Go to web interface: `http://YOUR_IP:8000`
+2. Click **"Live Streams"** in sidebar
+3. See your stream with real-time stats (bitrate, FPS, health)
+
+**🎥 Watch Video:**
+
+**Without FFmpeg (3 easy options):**
+
+1. **VLC Player** (Recommended for testing):
+   - Download VLC: https://www.videolan.org/
+   - Media → Open Network Stream
+   - Paste: `rtmp://YOUR_IP:1935/live/YOUR_STREAM_KEY`
+   - Click Play
+
+2. **OBS Preview**:
+   - Open another OBS window
+   - Add "Media Source"
+   - URL: `rtmp://YOUR_IP:1935/live/YOUR_STREAM_KEY`
+   - Uncheck "Local File"
+
+3. **FFplay** (command line):
+   ```bash
+   ffplay rtmp://YOUR_IP:1935/live/YOUR_STREAM_KEY
+   ```
+
+**With FFmpeg (browser playback):**
+1. Install FFmpeg (see below)
+2. Restart server
+3. Click stream card in web interface
+4. Watch in browser!
 
 ---
 
@@ -194,12 +226,30 @@ killall node
 ```
 
 ### "FFmpeg not found" Warning
-**Fix:** Install FFmpeg (needed for video playback)
+**This is OK!** Your streams work perfectly without FFmpeg.
 
-**Windows:**
+**FFmpeg is ONLY needed for:**
+- ✅ Browser playback (HLS in web interface)
+
+**FFmpeg is NOT needed for:**
+- ✅ RTMP streaming from OBS (works now!)
+- ✅ Viewing stats and monitoring (works now!)
+- ✅ Stream key management (works now!)
+- ✅ Using VLC to watch (works now!)
+
+**Want browser playback? Install FFmpeg:**
+
+**Windows - Easy Way:**
+```bash
+# Run from project folder
+install-ffmpeg.bat
+```
+
+**Windows - Manual:**
 1. Download: https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip
 2. Extract to `C:\ffmpeg`
-3. Add to PATH (or ignore for now - streams still work)
+3. Add `C:\ffmpeg\bin` to System PATH
+4. Restart terminal and server
 
 **Mac:**
 ```bash
