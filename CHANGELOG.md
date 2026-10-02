@@ -7,28 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.4] - 2026-02-10
 
-### ✨ YouTube-Style Live Streaming
+### ✨ YouTube-Style Live Streaming + Ultra-Low Latency
 
 #### Added
 - **YouTube-style live behavior**: Always jumps to LIVE edge on stream start (not paused position)
-- **"GO LIVE" button**: Red pulsing button appears when viewer falls >5 seconds behind live
+- **"GO LIVE" button**: Red pulsing button appears when viewer falls >3 seconds behind live (was >5s)
 - **Auto-reconnect**: Automatically recovers from network errors and jumps back to live
-- **Auto-jump to live**: Automatically seeks to live if viewer falls >20 seconds behind
+- **Auto-jump to live**: Automatically seeks to live if viewer falls >8 seconds behind (was >20s)
 - **LIVE indicator**: Visual badge with opacity change when not at live edge
-- **Smart reconnection**: On play after pause, auto-jumps to live if >15 seconds behind
+- **Smart reconnection**: On play after pause, auto-jumps to live if >5 seconds behind (was >15s)
 
-#### Improved
-- HLS.js configuration: `liveSyncDuration: 3s`, `liveMaxLatencyDuration: 10s`
-- Network error recovery with automatic seek to live edge
-- Media error recovery with HLS.js `recoverMediaError()`
-- Lag checking every 1 second with UI feedback
-- Better handling of stream breaks and signal drops
+#### Improved - Ultra-Low Latency Optimization
+- **HLS.js buffering**: Reduced from 30-60s to 4-8s (minimal buffer = minimal latency)
+- **Live sync**: Stay 1 second from edge (was 3s), max 3s behind (was 10s)
+- **Seek precision**: 0.1s from absolute edge (was 0.5s)
+- **Segment duration**: 1 second segments (was 2s) for faster updates
+- **Playlist size**: Only 2 segments (was 3) - minimum for playback
+- **Lag monitoring**: Check every 0.5s (was 1s) for faster UI response
+- **No back buffer**: Old segments discarded immediately (was 90s)
+- **Faster loading**: 2s timeouts, 500ms retry delays for manifest/fragments
 
 #### Technical
 - Player always prioritizes live content over buffered content
-- Interval-based lag monitoring with "Go Live" button toggle
+- Expected end-to-end latency: **~2-4 seconds** (was ~10-15 seconds)
+- HLS flags: `independent_segments` for better seeking
+- Aggressive ABR for stable low-latency playback
+- Fragment prefetching enabled
 - Proper cleanup of live check intervals on player close
-- Auto-recovery handlers for NETWORK_ERROR and MEDIA_ERROR
+
+#### Perfect For
+- Real-time encoder testing (minimal delay)
+- Live monitoring scenarios
+- Interactive streaming applications
 
 ## [1.0.3] - 2026-02-10
 
