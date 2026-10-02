@@ -1,22 +1,49 @@
 {
   "name": "local-stream-server",
   "version": "1.0.0",
-  "description": "Local YouTube-like live streaming server for encoder testing",
+  "description": "Professional RTMP encoder testing server with health monitoring. Test OBS, vMix, Wirecast locally before going live on YouTube/Twitch.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "screenshots": "node take-screenshots.js"
+    "screenshots": "node take-screenshots.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
     "rtmp",
+    "rtmp-server",
     "streaming",
-    "live",
+    "live-streaming",
     "obs",
-    "encoder"
+    "obs-studio",
+    "encoder",
+    "encoder-testing",
+    "youtube-live",
+    "twitch",
+    "vmix",
+    "wirecast",
+    "hls",
+    "ffmpeg",
+    "stream-testing",
+    "broadcast",
+    "self-hosted",
+    "nodejs",
+    "cloudflare-tunnel"
   ],
-  "author": "",
+  "author": "AMG555",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AMG555/local-stream-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AMG555/local-stream-server/issues"
+  },
+  "homepage": "https://github.com/AMG555/local-stream-server#readme",
+  "engines": {
+    "node": ">=14.0.0",
+    "npm": ">=6.0.0"
+  },
   "dependencies": {
     "axios": "^1.20.0",
     "body-parser": "^1.20.2",
