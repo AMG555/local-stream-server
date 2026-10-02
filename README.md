@@ -74,6 +74,13 @@
 - 🔒 **Private Testing** - No public exposure, perfect for pre-production validation
 - 📱 **Mobile Responsive** - Monitor from phone/tablet while streaming
 
+**Protocol Support:**
+- ✅ **RTMP** (Real-Time Messaging Protocol) - Full support
+- ❌ **SRT** (Secure Reliable Transport) - Not supported
+- ❌ **WebRTC** - Not supported
+
+Most platforms (YouTube, Twitch, Facebook, TikTok) accept RTMP for encoder testing.
+
 ## 🎯 Supported Encoders
 
 **Desktop Applications:**
@@ -89,9 +96,11 @@
 - ✅ CameraFi Live (Android)
 
 **Hardware Encoders:**
-- ✅ Teradek encoders
-- ✅ LiveU units
+- ✅ Teradek encoders (RTMP mode)
+- ✅ LiveU units (RTMP mode)
 - ✅ Any RTMP-compatible hardware
+
+**Note:** SRT and WebRTC encoders require different server software (MediaMTX, Nimble Streamer, etc.).
 
 ## 🚀 Quick Start
 
