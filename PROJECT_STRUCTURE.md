@@ -12,7 +12,7 @@ local-stream-server/
 │   ├── README.md                  📖 Project overview & features
 │   ├── OBS_SETUP_GUIDE.md        🎥 Configure OBS Studio
 │   ├── CLOUDFLARE_TUNNEL_GUIDE.md 🌐 Global access setup
-│   ├── YOUTUBE_LIVE_TESTING.md   🎬 YouTube Live testing
+│   ├── PLATFORM_TESTING_GUIDE.md  🎬 Multi-platform testing
 │   └── PROJECT_STRUCTURE.md       📁 This file
 │
 ├── ⚙️ Configuration Files
@@ -98,15 +98,15 @@ local-stream-server/
 
 **When to read:** When you want global access
 
-#### YOUTUBE_LIVE_TESTING.md
-**Test and perfect YouTube Live settings**
-- YouTube official presets (1080p60, 720p30, etc.)
-- Health dashboard like YouTube Studio
-- Complete testing workflow
-- Go from local tests to YouTube Live
-- Compare different encoders
+#### PLATFORM_TESTING_GUIDE.md
+**Test and go live on any streaming platform**
+- YouTube, Facebook, Twitch, Instagram, TikTok, LinkedIn, Twitter/X
+- Platform-specific requirements and settings
+- Health dashboard testing workflow
+- Multi-platform comparison table
+- Platform-specific presets and limitations
 
-**When to read:** Before going live on YouTube
+**When to read:** Before going live on any platform
 
 #### PROJECT_STRUCTURE.md
 **Understanding project files**
@@ -487,7 +487,7 @@ For detailed information about each topic:
 - **Features**: See `README.md`
 - **OBS**: See `OBS_SETUP_GUIDE.md`
 - **Tunnel**: See `CLOUDFLARE_TUNNEL_GUIDE.md`
-- **YouTube**: See `YOUTUBE_LIVE_TESTING.md`
+- **Platform Testing**: See `PLATFORM_TESTING_GUIDE.md`
 
 ---
 

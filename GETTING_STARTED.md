@@ -342,14 +342,14 @@ See `CLOUDFLARE_TUNNEL_GUIDE.md`
 
 **Advanced topics:**
 - `CLOUDFLARE_TUNNEL_GUIDE.md` - Global access setup
-- `YOUTUBE_LIVE_TESTING.md` - Test YouTube settings
+- `PLATFORM_TESTING_GUIDE.md` - Test for any streaming platform
 
 **Read in this order:**
 1. GETTING_STARTED.md (this file)
 2. README.md (project overview)
 3. OBS_SETUP_GUIDE.md (when configuring OBS)
 4. CLOUDFLARE_TUNNEL_GUIDE.md (when ready for public access)
-5. YOUTUBE_LIVE_TESTING.md (when testing for YouTube)
+5. PLATFORM_TESTING_GUIDE.md (when testing for live streaming)
 
 ---
 
@@ -522,7 +522,7 @@ http://localhost:8000
 **Read next:**
 - `OBS_SETUP_GUIDE.md` - Optimize your stream
 - `CLOUDFLARE_TUNNEL_GUIDE.md` - Go global
-- `YOUTUBE_LIVE_TESTING.md` - Prep for YouTube
+- `PLATFORM_TESTING_GUIDE.md` - Test for any platform
 
 ---
 

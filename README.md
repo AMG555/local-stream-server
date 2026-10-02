@@ -1,13 +1,23 @@
 # Local Stream Server 🎥
 
-**Test your encoders locally before going live!** Professional RTMP server for testing OBS, vMix, Wirecast, and any RTMP encoder on your local network. Validate stream settings, encoder performance, and broadcast quality without using platform stream keys.
+**Test your encoders locally before going live on ANY platform!** Professional RTMP server for testing OBS, vMix, Wirecast, and any RTMP encoder. Validate stream settings, encoder performance, and broadcast quality without burning platform stream keys.
 
-**Perfect for:**
-- Testing encoder configurations (x264, NVENC, QuickSync, AMD VCE)
-- Validating stream quality before YouTube/Twitch go-live
+**Perfect for testing before streaming to:**
+- ✅ YouTube Live
+- ✅ Facebook Live  
+- ✅ Twitch
+- ✅ Instagram Live
+- ✅ LinkedIn Live
+- ✅ Twitter/X Live
+- ✅ TikTok Live
+- ✅ Custom RTMP servers
+
+**Use cases:**
+- Test encoder configurations (x264, NVENC, QuickSync, AMD VCE)
+- Validate stream quality before going live on any platform
 - Encoder comparison and benchmarking
 - Training and education (streaming courses, workshops)
-- Development and testing of streaming applications
+- Development and testing of streaming pipelines/middleware
 
 ---
 
@@ -35,19 +45,19 @@
   - OBS from anywhere in the world
   - Security and troubleshooting
 
-**🎥 YouTube Live Testing:**
-- **[YOUTUBE_LIVE_TESTING.md](YOUTUBE_LIVE_TESTING.md)** - Perfect your stream
-  - Test before going live
-  - YouTube official presets
-  - Health dashboard like YouTube Studio
-  - Complete testing workflow
+**🎥 Platform Testing:**
+- **[PLATFORM_TESTING_GUIDE.md](PLATFORM_TESTING_GUIDE.md)** - Go live on any platform
+  - YouTube, Facebook, Twitch, Instagram, TikTok, LinkedIn, Twitter/X
+  - Platform-specific settings and requirements
+  - Health dashboard testing workflow
+  - Multi-platform comparison table
 
 **📋 Read in this order:**
 1. GETTING_STARTED.md (absolute beginner)
 2. README.md (this file - overview)
 3. OBS_SETUP_GUIDE.md (configure streaming)
 4. CLOUDFLARE_TUNNEL_GUIDE.md (public access)
-5. YOUTUBE_LIVE_TESTING.md (YouTube preparation)
+5. PLATFORM_TESTING_GUIDE.md (test for any platform)
 
 ---
 
@@ -144,19 +154,25 @@ Get a public URL like `https://random-words.trycloudflare.com` - share with anyo
 
 ---
 
-## 🎥 YouTube Live Testing
+## 🎥 Multi-Platform Streaming Testing
 
-**Test your streams exactly like YouTube Live - without going public!**
+**Test streams for YouTube, Facebook, Twitch, Instagram - all use RTMP!**
 
-This server replicates the YouTube Live streaming workflow:
-- ✅ Same RTMP ingest process
-- ✅ YouTube Studio-style health dashboard  
-- ✅ Official YouTube encoder presets (1080p60, 720p30, 480p30, etc.)
-- ✅ Test unlimited streams without platform quotas
+This server replicates the streaming workflow of ANY RTMP platform:
+- ✅ Same RTMP ingest process (universal protocol)
+- ✅ Platform-like health dashboard (bitrate, FPS, dropped frames)
+- ✅ Platform encoder presets (YouTube 1080p60, Facebook 720p30, Twitch presets)
+- ✅ Test unlimited streams without burning platform stream keys
 - ✅ Private testing - validate before going live
 - ✅ Perfect for testing new encoder settings, hardware, or scenes
 
-**Complete Testing Workflow** → See [YOUTUBE_LIVE_TESTING.md](YOUTUBE_LIVE_TESTING.md)
+**Why this works for all platforms:** YouTube, Facebook, Twitch, Instagram, TikTok, LinkedIn all use RTMP ingest with the same protocol. If your encoder settings are stable here with good bitrate and zero dropped frames → they'll work on ANY platform.
+
+**Platform-Specific Testing Guides:**
+- **All Platforms** → See [PLATFORM_TESTING_GUIDE.md](PLATFORM_TESTING_GUIDE.md)
+  - YouTube Live, Facebook Live, Twitch
+  - Instagram Live, TikTok Live, LinkedIn Live, Twitter/X
+  - Platform comparison table and requirements
 
 ---
 

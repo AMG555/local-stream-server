@@ -1,4 +1,6 @@
-# OBS Studio Setup Guide for Local Stream Server 🎬
+# OBS Studio Setup Guide for Local Stream Server
+
+**Universal encoder testing for YouTube, Facebook, Twitch, Instagram, TikTok, LinkedIn, and any RTMP platform.** 🎬
 
 Complete guide to configure OBS Studio with your Local Stream Server.
 
