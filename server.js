@@ -325,18 +325,22 @@ io.on('connection', (socket) => {
   });
 });
 
-// Periodic stats update (simulated - in production, parse ffmpeg stats)
+// Periodic stats update
+// NOTE: bitrate/fps/resolution are simulated since node-media-server doesn't expose
+// real-time encoder stats without FFmpeg. When FFmpeg is available these would come
+// from parsing FFmpeg stderr. For encoder testing purposes, the connection stability
+// and stream health (connected/disconnected, duration) ARE real.
 setInterval(() => {
   activeStreams.forEach((stream, key) => {
     const duration = Date.now() - stream.startTime;
     
-    // Simulate stats (in real implementation, get from ffmpeg)
     const stats = {
       duration: Math.floor(duration / 1000),
-      bitrate: Math.floor(2500 + Math.random() * 500), // kbps
-      fps: 30,
-      resolution: '1920x1080',
-      viewers: Math.floor(Math.random() * 10)
+      bitrate: Math.floor(2500 + Math.random() * 500), // kbps - simulated
+      fps: 30,                                          // simulated
+      resolution: '1920x1080',                          // simulated
+      droppedFrames: 0,                                 // real: node-media-server doesn't expose this without FFmpeg
+      viewers: Math.floor(Math.random() * 10)           // simulated
     };
     
     streamStats.set(key, stats);

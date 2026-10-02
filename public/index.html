@@ -41,15 +41,15 @@
             <!-- Sidebar -->
             <aside class="sidebar">
                 <div class="sidebar-section">
-                    <a href="#" class="sidebar-item active" onclick="showTab('live')">
+                    <a href="#" class="sidebar-item active" onclick="showTab('live', this)">
                         <i class="fas fa-broadcast-tower"></i>
                         <span>Live Streams</span>
                     </a>
-                    <a href="#" class="sidebar-item" onclick="showTab('all')">
+                    <a href="#" class="sidebar-item" onclick="showTab('all', this)">
                         <i class="fas fa-list"></i>
                         <span>All Stream Keys</span>
                     </a>
-                    <a href="#" class="sidebar-item" onclick="showTab('stats')">
+                    <a href="#" class="sidebar-item" onclick="showTab('stats', this)">
                         <i class="fas fa-chart-line"></i>
                         <span>Statistics</span>
                     </a>
@@ -225,7 +225,7 @@
             </div>
             <div class="modal-footer">
                 <button class="btn-secondary" onclick="hideCreateStreamModal()">Cancel</button>
-                <button class="btn-primary" onclick="createStream()">Generate Stream Key</button>
+                <button class="btn-primary" onclick="createStream(this)">Generate Stream Key</button>
             </div>
         </div>
     </div>

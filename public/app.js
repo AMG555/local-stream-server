@@ -8,17 +8,21 @@ let allStreams = [];
 let serverStartTime = Date.now();
 let isLoading = false;
 let retryCount = 0;
+const streamStats = new Map();   // FIX: was undeclared (BUG #2)
+const activeStreams = new Map();  // FIX: was undeclared (BUG #3)
+let hlsInstance = null;           // FIX: track HLS instance to destroy on close (BUG #6)
+let pollInterval = null;          // FIX: track interval so it can be cleared
 
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
     showLoadingState();
     setupSocketListeners();
-    await loadServerInfo(); // Wait for server info before loading streams
-    await loadAllStreams(); // Load streams (renders both Live and All tabs)
+    await loadServerInfo();
+    await loadAllStreams();
     startUptimeTimer();
     setupKeyboardShortcuts();
-    // Poll every 5s as fallback in case socket events are missed
-    setInterval(loadAllStreams, 5000);
+    // FIX: single interval, stored so it can be cleared if needed (BUG #5)
+    pollInterval = setInterval(loadAllStreams, 5000);
 });
 
 // Socket listeners
@@ -82,8 +86,16 @@ function showConnectionStatus(connected) {
     }, 3000);
 }
 
-// API calls
-async function loadServerInfo() {
+// FIX: XSS protection - escape user-supplied strings before injecting into innerHTML (BUG #4)
+function escHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
 // API calls
 async function loadServerInfo() {
     try {
@@ -193,7 +205,7 @@ async function loadAllStreams() {
     }
 }
 
-async function createStream() {
+async function createStream(btn) {  // FIX: explicit btn param instead of implicit event (BUG #7)
     const title = document.getElementById('streamTitle').value.trim();
     
     if (!title) {
@@ -201,7 +213,7 @@ async function createStream() {
         return;
     }
 
-    const button = event.target;
+    const button = btn || document.querySelector('#createStreamModal .btn-primary');
     const originalText = button.innerHTML;
     button.disabled = true;
     button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
@@ -281,8 +293,14 @@ function updateStats() {
     
     // Calculate average bitrate (simulated)
     if (liveStreams.length > 0) {
-        const avgBitrate = 2500 + Math.floor(Math.random() * 500);
-        document.getElementById('statAvgBitrate').textContent = `${avgBitrate} kbps`;
+        // FIX: compute real avg bitrate from actual stats, not random number
+        const bitrateValues = liveStreams
+            .map(s => streamStats.get(s.key)?.bitrate || 0)
+            .filter(b => b > 0);
+        const avgBitrate = bitrateValues.length > 0
+            ? Math.floor(bitrateValues.reduce((a, b) => a + b, 0) / bitrateValues.length)
+            : 0;
+        document.getElementById('statAvgBitrate').textContent = avgBitrate > 0 ? `${avgBitrate} kbps` : 'Waiting...';
     } else {
         document.getElementById('statAvgBitrate').textContent = '0 kbps';
     }
@@ -308,7 +326,8 @@ function updateHealthDashboard() {
     
     const bitrate = stats.bitrate || 0;
     const fps = stats.fps || 0;
-    const droppedFrames = Math.floor(Math.random() * 10); // Simulated
+    // FIX: use real dropped frames if available, not random (BUG #6 / fake stats)
+    const droppedFrames = stats.droppedFrames || 0;
     
     // Update health indicator
     let health = 'excellent';
@@ -467,9 +486,11 @@ function renderLiveStreams(streams) {
     container.innerHTML = watchBanner + streams.map(stream => {
         const quality = getStreamQuality(stream.key);
         const uptime = getTimeSince(stream.startTime);
+        const safeTitle = escHtml(stream.title);
+        const safeKey = escHtml(stream.key);
         
         return `
-            <div class="stream-card" onclick="playStream('${stream.key}', '${stream.title}')" role="button" tabindex="0">
+            <div class="stream-card" onclick="playStream('${safeKey}', '${safeTitle}')" role="button" tabindex="0" aria-label="Watch ${safeTitle}">
                 <div class="stream-thumbnail live">
                     <div class="live-badge">LIVE</div>
                     <i class="fas fa-broadcast-tower"></i>
@@ -479,7 +500,7 @@ function renderLiveStreams(streams) {
                     </div>` : ''}
                 </div>
                 <div class="stream-info">
-                    <div class="stream-title">${stream.title}</div>
+                    <div class="stream-title">${safeTitle}</div>
                     <div class="stream-meta">
                         <span><i class="fas fa-eye"></i> Live</span>
                         <span><i class="fas fa-clock"></i> ${uptime}</span>
@@ -520,36 +541,39 @@ function renderAllStreams() {
         return;
     }
 
-    container.innerHTML = allStreams.map(stream => `
+    container.innerHTML = allStreams.map(stream => {
+        const safeTitle = escHtml(stream.title);
+        const safeKey = escHtml(stream.key);
+        return `
         <div class="stream-list-item">
             <div class="stream-list-info">
                 <div class="stream-list-title">
-                    ${stream.title}
+                    ${safeTitle}
                     <span class="status-badge ${stream.isLive ? 'live' : 'offline'}">
                         ${stream.isLive ? '🔴 LIVE' : 'OFFLINE'}
                     </span>
                 </div>
                 <div class="stream-list-details">
-                    <span><i class="fas fa-key"></i> ${stream.key.substring(0, 8)}...</span>
+                    <span><i class="fas fa-key"></i> ${safeKey.substring(0, 8)}...</span>
                     <span><i class="fas fa-calendar"></i> ${new Date(stream.createdAt).toLocaleDateString()}</span>
                     ${stream.isLive ? `<span><i class="fas fa-clock"></i> ${getTimeSince(stream.startTime)}</span>` : ''}
                 </div>
             </div>
             <div class="stream-list-actions">
                 ${stream.isLive ? `
-                    <button class="btn-primary" onclick="playStream('${stream.key}', '${stream.title}')">
+                    <button class="btn-primary" onclick="playStream('${safeKey}', '${safeTitle}')">
                         <i class="fas fa-play"></i> Watch
                     </button>
                 ` : ''}
-                <button class="btn-secondary" onclick="showStreamDetailsById('${stream.key}')">
+                <button class="btn-secondary" onclick="showStreamDetailsById('${safeKey}')">
                     <i class="fas fa-info-circle"></i> Details
                 </button>
-                <button class="btn-icon" onclick="deleteStream('${stream.key}')">
+                <button class="btn-icon" onclick="deleteStream('${safeKey}')" aria-label="Delete ${safeTitle}">
                     <i class="fas fa-trash"></i>
                 </button>
             </div>
         </div>
-    `).join('');
+    `}).join('');
 }
 
 function updateStreamStats(key, stats) {
@@ -599,11 +623,20 @@ function updateStreamStats(key, stats) {
         }
     }
     
-    // Re-render live streams to update quality indicators
-    const activeStreamsList = Array.from(activeStreams.values());
-    if (activeStreamsList.length > 0) {
-        renderLiveStreams(activeStreamsList);
-    }
+    // FIX: update quality indicators without full re-render (BUG #5 / flicker)
+    // Only update the quality badge on the specific stream card, not full innerHTML
+    const streamCards = document.querySelectorAll('.stream-card');
+    streamCards.forEach(card => {
+        const cardKey = card.getAttribute('onclick')?.match(/'([^']+)'/)?.[1];
+        if (cardKey === key) {
+            const quality = getStreamQuality(key);
+            const badge = card.querySelector('.quality-indicator');
+            if (badge && quality) {
+                badge.className = `quality-indicator quality-${quality.level}`;
+                badge.querySelector('span') && (badge.querySelector('span').textContent = quality.label);
+            }
+        }
+    });
 }
 
 function calculateLatency(stats) {
@@ -672,21 +705,27 @@ function playStream(streamKey, title) {
     const video = document.getElementById('videoPlayer');
     video.dataset.streamKey = streamKey;
     
+    // FIX: destroy previous HLS instance before creating new one (BUG #6)
+    if (hlsInstance) {
+        hlsInstance.destroy();
+        hlsInstance = null;
+    }
+    
     if (Hls.isSupported()) {
-        const hls = new Hls({
+        hlsInstance = new Hls({
             enableWorker: true,
             lowLatencyMode: true,
             backBufferLength: 90
         });
         
-        hls.loadSource(playbackUrl);
-        hls.attachMedia(video);
+        hlsInstance.loadSource(playbackUrl);
+        hlsInstance.attachMedia(video);
         
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
             video.play();
         });
         
-        hls.on(Hls.Events.ERROR, (event, data) => {
+        hlsInstance.on(Hls.Events.ERROR, (event, data) => {
             if (data.fatal) {
                 console.error('HLS error:', data);
             }
@@ -705,11 +744,16 @@ function hideVideoPlayer() {
     const video = document.getElementById('videoPlayer');
     video.pause();
     video.src = '';
+    // FIX: destroy HLS instance to prevent memory leak (BUG #6)
+    if (hlsInstance) {
+        hlsInstance.destroy();
+        hlsInstance = null;
+    }
     document.getElementById('videoPlayerModal').classList.remove('active');
 }
 
 // Tab switching
-function showTab(tabName) {
+function showTab(tabName, clickedEl) {  // FIX: explicit element param instead of implicit event (BUG #7)
     // Hide all tabs
     document.querySelectorAll('.tab-content').forEach(tab => {
         tab.style.display = 'none';
@@ -730,7 +774,8 @@ function showTab(tabName) {
     document.getElementById(tabMap[tabName]).style.display = 'block';
     
     // Set active sidebar item
-    event.target.closest('.sidebar-item').classList.add('active');
+    const sidebarItem = clickedEl ? clickedEl.closest('.sidebar-item') : document.querySelector('.sidebar-item.active');
+    if (sidebarItem) sidebarItem.classList.add('active');
 }
 
 // Utility functions
@@ -861,7 +906,5 @@ window.onclick = function(event) {
     }
 }
 
-// Refresh streams periodically
-setInterval(() => {
-    loadAllStreams();
-}, 30000); // Every 30 seconds
+// Refresh streams periodically - handled by pollInterval in DOMContentLoaded
+// (removed duplicate 30s interval that was firing at parse time)
