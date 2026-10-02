@@ -156,20 +156,23 @@ function showFFmpegWarning() {
         <div class="alert alert-warning">
             <i class="fas fa-exclamation-triangle"></i>
             <div>
-                <strong>⚠️ FFmpeg Not Installed (Optional)</strong>
+                <strong>⚠️ FFmpeg Not Installed - Browser Playback Disabled</strong>
                 <p style="margin: 8px 0; font-size: 14px;">
-                    <strong>RTMP ingestion works perfectly!</strong> You can stream from OBS right now.<br>
-                    FFmpeg is only needed for browser playback (HLS). Your encoder testing will work without it.
+                    <strong>✅ RTMP streaming works perfectly!</strong> Your encoder can stream right now.<br>
+                    ❌ Browser video player won't work until you install FFmpeg.<br>
+                    <strong>Alternative:</strong> Use VLC Player to watch streams (no FFmpeg needed).
                 </p>
                 <details style="margin-top: 10px;">
-                    <summary style="cursor: pointer; color: #3ea6ff;">📥 Click to install FFmpeg</summary>
+                    <summary style="cursor: pointer; color: #3ea6ff; font-weight: bold;">📥 How to Install FFmpeg</summary>
                     <div style="margin-top: 10px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 4px;">
-                        <strong>Windows:</strong><br>
+                        <strong>Windows (Easiest):</strong><br>
                         <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 3px;">install-ffmpeg.bat</code> (run from project folder)<br>
-                        <small>Or download from <a href="https://www.gyan.dev/ffmpeg/builds/" target="_blank" style="color: #3ea6ff;">gyan.dev/ffmpeg</a></small>
+                        <small>Or manual: <a href="https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" target="_blank" style="color: #3ea6ff;">Download ZIP</a> → Extract to C:\\ffmpeg → Add C:\\ffmpeg\\bin to PATH</small>
                         <br><br>
                         <strong>Mac:</strong> <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 3px;">brew install ffmpeg</code><br>
                         <strong>Linux:</strong> <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 3px;">sudo apt install ffmpeg</code>
+                        <br><br>
+                        <strong>After Installing:</strong> Restart server (<code>npm start</code>) and refresh this page.
                     </div>
                 </details>
             </div>

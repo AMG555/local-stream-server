@@ -23,6 +23,8 @@
 
 ## 📖 Documentation Guide
 
+**⚠️ COMMON ISSUE: Video Not Playing? [Jump to solution](#%EF%B8%8F-video-playback-not-working)**
+
 **👉 New to streaming? Start here:**
 - **[GETTING_STARTED.md](GETTING_STARTED.md)** ⭐ Complete beginner guide
   - Step-by-step installation
@@ -128,11 +130,27 @@ http://localhost:8000
 
 The server will display your local IP address. Use this to access from other devices on the same network.
 
-⚠️ **FFmpeg Warning?** HLS playback requires FFmpeg. RTMP ingestion works without it.
+---
+
+## ⚠️ Video Playback Not Working?
+
+**If you see a loading spinner when trying to watch streams in the browser:**
+
+**Reason:** FFmpeg is not installed. FFmpeg is needed for HLS transcoding (browser playback).
+
+**What DOES work without FFmpeg:**
+- ✅ RTMP streaming from OBS/vMix/Wirecast (works!)
+- ✅ Stream stats and health monitoring (works!)
+- ✅ Stream key management (works!)
+- ✅ Watching with VLC Player (works!)
+- ✅ Watching with OBS Preview (works!)
+
+**What NEEDS FFmpeg:**
+- ❌ Browser playback (HTML5 video player)
 
 **Quick FFmpeg Install:**
 ```bash
-# Windows - Run installer script
+# Windows - Run installer script (EASIEST)
 install-ffmpeg.bat
 
 # Mac
@@ -142,7 +160,18 @@ brew install ffmpeg
 sudo apt install ffmpeg
 ```
 
-Manual Windows install: Download from [gyan.dev/ffmpeg](https://www.gyan.dev/ffmpeg/builds/), extract to `C:\ffmpeg`, add `C:\ffmpeg\bin` to PATH.
+**Windows Manual Install:**
+1. Download: https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip
+2. Extract to `C:\ffmpeg`
+3. Add `C:\ffmpeg\bin` to System PATH (see: https://www.java.com/en/download/help/path.html)
+4. Restart terminal/PowerShell
+5. Restart server: `npm start`
+6. Refresh browser
+
+**After installing FFmpeg:**
+- Restart the server
+- Refresh the web interface
+- Browser playback will now work!
 
 ### 🌐 Public Access with Cloudflare Tunnel (FREE)
 
