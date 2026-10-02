@@ -144,7 +144,6 @@ func (s *Server) HandleOffer(w http.ResponseWriter, r *http.Request) {
 	peerID := fmt.Sprintf("%s#%d", streamKey, s.nextPeerID.Add(1))
 	ssrcVideo := rand.Uint32()
 	ssrcAudio := rand.Uint32()
-	seqVideo := uint16(rand.Uint32())
 	seqAudio := uint16(rand.Uint32())
 
 	// H.264 packetizer: uses pion's H264Payloader (FU-A fragmentation per RFC 6184)
@@ -185,8 +184,6 @@ func (s *Server) HandleOffer(w http.ResponseWriter, r *http.Request) {
 
 		pkts := h264Packetizer.Packetize(annexB, rtpSamples)
 		for _, pkt := range pkts {
-			pkt.Header.SequenceNumber = seqVideo
-			seqVideo++
 			if buf, err := pkt.Marshal(); err == nil {
 				if _, err := videoTrack.Write(buf); err != nil {
 					log.Printf("WebRTC video write error for %s: %v", peerID, err)

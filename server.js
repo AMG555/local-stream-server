@@ -257,20 +257,29 @@ const config = {
 const nms = new NodeMediaServer(config);
 
 // RTMP Events
+
+// Sanitise RTMP connection args to avoid leaking stream keys embedded in
+// tcUrl / swfUrl / pageUrl that OBS and other encoders send verbatim.
+function safeArgs(args) {
+  if (!args || typeof args !== 'object') return {};
+  const { app, flashVer, objectEncoding, type } = args;
+  return { app, flashVer, objectEncoding, type };
+}
+
 nms.on('preConnect', (id, args) => {
-  console.log('[NodeEvent on preConnect]', `id=${id} args=${JSON.stringify(args)}`);
+  console.log('[NodeEvent on preConnect]', `id=${id}`, safeArgs(args));
 });
 
 nms.on('postConnect', (id, args) => {
-  console.log('[NodeEvent on postConnect]', `id=${id} args=${JSON.stringify(args)}`);
+  console.log('[NodeEvent on postConnect]', `id=${id}`, safeArgs(args));
 });
 
 nms.on('doneConnect', (id, args) => {
-  console.log('[NodeEvent on doneConnect]', `id=${id} args=${JSON.stringify(args)}`);
+  console.log('[NodeEvent on doneConnect]', `id=${id}`, safeArgs(args));
 });
 
 nms.on('prePublish', (id, StreamPath, args) => {
-  console.log('[NodeEvent on prePublish]', `id=${id} StreamPath=${redactStreamKey(StreamPath)} args=${JSON.stringify(args)}`);
+  console.log('[NodeEvent on prePublish]', `id=${id} StreamPath=${redactStreamKey(StreamPath)}`, safeArgs(args));
   
   // Extract stream key from path (format: /live/STREAM_KEY)
   const streamKey = StreamPath.split('/')[2];
@@ -322,11 +331,11 @@ nms.on('prePublish', (id, StreamPath, args) => {
 });
 
 nms.on('postPublish', (id, StreamPath, args) => {
-  console.log('[NodeEvent on postPublish]', `id=${id} StreamPath=${redactStreamKey(StreamPath)} args=${JSON.stringify(args)}`);
+  console.log('[NodeEvent on postPublish]', `id=${id} StreamPath=${redactStreamKey(StreamPath)}`, safeArgs(args));
 });
 
 nms.on('donePublish', (id, StreamPath, args) => {
-  console.log('[NodeEvent on donePublish]', `id=${id} StreamPath=${redactStreamKey(StreamPath)} args=${JSON.stringify(args)}`);
+  console.log('[NodeEvent on donePublish]', `id=${id} StreamPath=${redactStreamKey(StreamPath)}`, safeArgs(args));
   
   const streamKey = StreamPath.split('/')[2];
   
