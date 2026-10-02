@@ -134,13 +134,24 @@ function showFFmpegWarning() {
         <div class="alert alert-warning">
             <i class="fas fa-exclamation-triangle"></i>
             <div>
-                <strong>FFmpeg Not Found</strong>
-                <p>Stream playback requires FFmpeg. Install it to enable HLS transcoding.</p>
-                <a href="https://ffmpeg.org/download.html" target="_blank" class="btn-link">
-                    Download FFmpeg <i class="fas fa-external-link-alt"></i>
-                </a>
+                <strong>⚠️ FFmpeg Not Installed (Optional)</strong>
+                <p style="margin: 8px 0; font-size: 14px;">
+                    <strong>RTMP ingestion works perfectly!</strong> You can stream from OBS right now.<br>
+                    FFmpeg is only needed for browser playback (HLS). Your encoder testing will work without it.
+                </p>
+                <details style="margin-top: 10px;">
+                    <summary style="cursor: pointer; color: #3ea6ff;">📥 Click to install FFmpeg</summary>
+                    <div style="margin-top: 10px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+                        <strong>Windows:</strong><br>
+                        <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 3px;">install-ffmpeg.bat</code> (run from project folder)<br>
+                        <small>Or download from <a href="https://www.gyan.dev/ffmpeg/builds/" target="_blank" style="color: #3ea6ff;">gyan.dev/ffmpeg</a></small>
+                        <br><br>
+                        <strong>Mac:</strong> <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 3px;">brew install ffmpeg</code><br>
+                        <strong>Linux:</strong> <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 3px;">sudo apt install ffmpeg</code>
+                    </div>
+                </details>
             </div>
-            <button onclick="this.parentElement.parentElement.remove()" class="close-btn">&times;</button>
+            <button onclick="this.parentElement.parentElement.remove()" class="close-btn" aria-label="Close warning">&times;</button>
         </div>
     `;
     document.querySelector('.content').prepend(warning);
