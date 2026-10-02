@@ -1,3 +1,4 @@
+const NodeMediaServer = require('node-media-server');
 const express = require('express');
 const http = require('http');
 const socketIO = require('socket.io');
@@ -5,9 +6,8 @@ const { v4: uuidv4 } = require('uuid');
 const bodyParser = require('body-parser');
 const path = require('path');
 const os = require('os');
-const { spawn, execSync } = require('child_process');
+const { execSync } = require('child_process');
 const fs = require('fs');
-const axios = require('axios');
 
 // Express app setup
 const app = express();
@@ -22,9 +22,6 @@ const STORAGE_FILE = path.join(__dirname, 'stream-keys.json');
 const streamKeys = new Map();
 const activeStreams = new Map();
 const streamStats = new Map();
-
-// MediaMTX process
-let mediaMTXProcess = null;
 
 // FFmpeg detection
 function detectFFmpeg() {
