@@ -53,6 +53,11 @@ const socketHandlers = {
     },
     streamEnded: (data) => {
         console.log('Stream ended:', data);
+        // FIX: Clear history to prevent memory leak
+        if (window.streamStatsHistory) {
+            window.streamStatsHistory.delete(data.key);
+        }
+        streamStats.delete(data.key);
         loadAllStreams();
         showNotification('Stream ended', 'info');
     },
@@ -502,7 +507,7 @@ function renderLiveStreams(streams) {
         const safeKey = escHtml(stream.key);
         
         return `
-            <div class="stream-card" data-stream-key="${safeKey}" data-stream-title="${safeTitle}" role="button" tabindex="0" aria-label="Watch ${safeTitle}">
+            <div class="stream-card" data-stream-key="${safeKey.replace(/"/g, '&quot;')}" data-stream-title="${safeTitle.replace(/"/g, '&quot;')}" role="button" tabindex="0" aria-label="Watch ${safeTitle.replace(/"/g, '&quot;')}">
                 <div class="stream-thumbnail live">
                     <div class="live-badge">LIVE</div>
                     <i class="fas fa-broadcast-tower"></i>
@@ -574,7 +579,7 @@ function renderAllStreams() {
         const safeTitle = escHtml(stream.title);
         const safeKey = escHtml(stream.key);
         return `
-        <div class="stream-list-item" data-stream-key="${safeKey}" data-stream-title="${safeTitle}">
+        <div class="stream-list-item" data-stream-key="${safeKey.replace(/"/g, '&quot;')}" data-stream-title="${safeTitle.replace(/"/g, '&quot;')}">
             <div class="stream-list-info">
                 <div class="stream-list-title">
                     ${safeTitle}
@@ -597,7 +602,7 @@ function renderAllStreams() {
                 <button class="btn-secondary btn-stream-details">
                     <i class="fas fa-info-circle"></i> Details
                 </button>
-                <button class="btn-icon btn-delete-stream" aria-label="Delete ${safeTitle}">
+                <button class="btn-icon btn-delete-stream" aria-label="Delete ${safeTitle.replace(/"/g, '&quot;')}">
                     <i class="fas fa-trash"></i>
                 </button>
             </div>

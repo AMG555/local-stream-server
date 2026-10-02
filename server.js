@@ -8,6 +8,7 @@ const path = require('path');
 const os = require('os');
 const { execSync } = require('child_process');
 const fs = require('fs');
+const rateLimit = require('express-rate-limit');
 
 // Express app setup
 const app = express();
@@ -16,6 +17,39 @@ const io = socketIO(server);
 
 app.use(bodyParser.json());
 app.use(express.static('public'));
+
+// Security headers
+app.use((req, res, next) => {
+  res.setHeader('Content-Security-Policy', 
+    "default-src 'self'; " +
+    "script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com 'unsafe-inline'; " +
+    "style-src 'self' https://cdnjs.cloudflare.com 'unsafe-inline'; " +
+    "img-src 'self' data:; " +
+    "connect-src 'self' ws: wss:; " +
+    "frame-ancestors 'none';"
+  );
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  next();
+});
+
+// Rate limiters
+const createStreamLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // 10 streams per 15min per IP
+  message: { error: 'Too many stream keys created. Try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const deleteStreamLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 20, // 20 deletions per 5min per IP
+  message: { error: 'Too many deletion requests. Try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // Store active streams and their keys
 const STORAGE_FILE = path.join(__dirname, 'stream-keys.json');
@@ -94,6 +128,31 @@ function isValidUUID(str) {
   return uuidRegex.test(str);
 }
 
+// Title sanitization helper
+function sanitizeTitle(title) {
+  if (!title || typeof title !== 'string') {
+    return null;
+  }
+  
+  // Remove control characters, zero-width chars, and trim
+  const cleaned = title
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Control chars
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')         // Zero-width
+    .trim();
+  
+  // Enforce length limits
+  if (cleaned.length === 0 || cleaned.length > 100) {
+    return null;
+  }
+  
+  return cleaned;
+}
+
+// Redact stream key for logging
+function redactStreamKey(streamPath) {
+  return streamPath.replace(/\/([^\/]+)$/, '/***REDACTED***');
+}
+
 // Get local IP address
 function getLocalIP() {
   const interfaces = os.networkInterfaces();
@@ -156,14 +215,14 @@ nms.on('doneConnect', (id, args) => {
 });
 
 nms.on('prePublish', (id, StreamPath, args) => {
-  console.log('[NodeEvent on prePublish]', `id=${id} StreamPath=${StreamPath} args=${JSON.stringify(args)}`);
+  console.log('[NodeEvent on prePublish]', `id=${id} StreamPath=${redactStreamKey(StreamPath)} args=${JSON.stringify(args)}`);
   
   // Extract stream key from path (format: /live/STREAM_KEY)
   const streamKey = StreamPath.split('/')[2];
   
   // Validate stream key format and existence
   if (!streamKey || !isValidUUID(streamKey) || !streamKeys.has(streamKey)) {
-    console.log('[Reject] Invalid stream key:', streamKey);
+    console.log('[Reject] Invalid stream key');
     const session = nms.getSession(id);
     if (session) {
       session.reject();
@@ -173,9 +232,9 @@ nms.on('prePublish', (id, StreamPath, args) => {
   
   const streamInfo = streamKeys.get(streamKey);
   
-  // Prevent race condition: reject if stream is already live
-  if (streamInfo.isLive && activeStreams.has(streamKey)) {
-    console.log('[Reject] Stream already active:', streamKey);
+  // Prevent race condition: reject if stream is already live (atomic check)
+  if (activeStreams.has(streamKey)) {
+    console.log('[Reject] Stream already active');
     const session = nms.getSession(id);
     if (session) {
       session.reject();
@@ -183,33 +242,36 @@ nms.on('prePublish', (id, StreamPath, args) => {
     return;
   }
   
-  streamInfo.isLive = true;
-  streamInfo.startTime = Date.now();
-  streamInfo.sessionId = id;
-  
+  // ATOMIC: set activeStreams BEFORE setting streamInfo.isLive
+  const startTime = Date.now();
   activeStreams.set(streamKey, {
     key: streamKey,
     title: streamInfo.title,
-    startTime: streamInfo.startTime,
+    startTime: startTime,
     sessionId: id
   });
+  
+  // Set flags after activeStreams is set
+  streamInfo.isLive = true;
+  streamInfo.startTime = startTime;
+  streamInfo.sessionId = id;
   
   // Notify all connected clients
   io.emit('streamStarted', {
     key: streamKey,
     title: streamInfo.title,
-    startTime: streamInfo.startTime
+    startTime: startTime
   });
   
-  console.log('[Accept] Stream started:', streamKey);
+  console.log('[Accept] Stream started');
 });
 
 nms.on('postPublish', (id, StreamPath, args) => {
-  console.log('[NodeEvent on postPublish]', `id=${id} StreamPath=${StreamPath} args=${JSON.stringify(args)}`);
+  console.log('[NodeEvent on postPublish]', `id=${id} StreamPath=${redactStreamKey(StreamPath)} args=${JSON.stringify(args)}`);
 });
 
 nms.on('donePublish', (id, StreamPath, args) => {
-  console.log('[NodeEvent on donePublish]', `id=${id} StreamPath=${StreamPath} args=${JSON.stringify(args)}`);
+  console.log('[NodeEvent on donePublish]', `id=${id} StreamPath=${redactStreamKey(StreamPath)} args=${JSON.stringify(args)}`);
   
   const streamKey = StreamPath.split('/')[2];
   
@@ -225,19 +287,28 @@ nms.on('donePublish', (id, StreamPath, args) => {
   // Notify all connected clients
   io.emit('streamEnded', { key: streamKey });
   
-  console.log('[Stream Ended]', streamKey);
+  console.log('[Stream Ended]');
 });
 
 // API Routes
 
 // Generate new stream key
-app.post('/api/stream/create', (req, res) => {
+app.post('/api/stream/create', createStreamLimiter, (req, res) => {
   const { title } = req.body;
+  
+  // Validate and sanitize title
+  const sanitized = sanitizeTitle(title);
+  if (!sanitized) {
+    return res.status(400).json({ 
+      error: 'Title must be 1-100 characters and contain valid text' 
+    });
+  }
+  
   const streamKey = uuidv4();
   
   streamKeys.set(streamKey, {
     key: streamKey,
-    title: title || 'Untitled Stream',
+    title: sanitized,
     createdAt: Date.now(),
     isLive: false
   });
@@ -249,7 +320,7 @@ app.post('/api/stream/create', (req, res) => {
     streamKey,
     rtmpUrl: `rtmp://${LOCAL_IP}:${RTMP_PORT}/live`,
     streamUrl: `http://${LOCAL_IP}:${MEDIA_PORT}/live/${streamKey}/index.m3u8`,
-    title: title || 'Untitled Stream',
+    title: sanitized,
     ffmpegAvailable: FFMPEG_PATH !== null
   });
 });
@@ -293,7 +364,7 @@ app.get('/api/stream/:key', (req, res) => {
 });
 
 // Delete stream key
-app.delete('/api/stream/:key', (req, res) => {
+app.delete('/api/stream/:key', deleteStreamLimiter, (req, res) => {
   const { key } = req.params;
   
   if (!key || !isValidUUID(key) || !streamKeys.has(key)) {
