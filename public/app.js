@@ -1629,41 +1629,66 @@ async function _startWebRTCPlayer(streamKey) {
         // peerId is returned by the server — used for ICE so multiple viewers work
         let peerId = null;
 
+        // ontrack fires once per track (video + audio separately).
+        // We wait until we have at least a video track before calling play().
+        let _tracksReceived = 0;
+        const _expectedTracks = 2; // video + audio
+
         pc.ontrack = (evt) => {
+            _tracksReceived++;
             if (evt.streams && evt.streams[0]) {
+                // Always update srcObject so the stream has all tracks
                 webrtcVid.srcObject = evt.streams[0];
-                webrtcVid.play().catch(e => console.warn('WebRTC autoplay blocked:', e));
-                showSuccessNotification('WebRTC stream connected');
+            }
+
+            // Only start playback once we have video (don't play on audio-only first fire)
+            const hasVideo = webrtcVid.srcObject &&
+                [...webrtcVid.srcObject.getVideoTracks()].length > 0;
+
+            if (hasVideo && webrtcVid.paused) {
+                // Try unmuted first (user opened modal = gesture), fall back to muted
+                webrtcVid.muted = false;
+                webrtcVid.play().catch(() => {
+                    webrtcVid.muted = true;
+                    webrtcVid.play().then(() => {
+                        webrtcVid.muted = false;
+                    }).catch(e => console.warn('WebRTC autoplay blocked:', e));
+                });
+
+                if (_tracksReceived >= _expectedTracks) {
+                    showSuccessNotification('WebRTC stream connected');
+                } else {
+                    showSuccessNotification('WebRTC video connected');
+                }
 
                 // Start real-time latency measurement via RTCPeerConnection.getStats()
-                _webrtcLatencyInterval = setInterval(async () => {
-                    if (!webrtcPeerConn || currentPlayerMode !== 'webrtc') {
-                        clearInterval(_webrtcLatencyInterval);
-                        return;
-                    }
-                    try {
-                        const stats = await webrtcPeerConn.getStats();
-                        let jitterMs = null;
-                        stats.forEach(report => {
-                            // inbound-rtp video track gives us jitter (network jitter ≈ lower bound)
-                            if (report.type === 'inbound-rtp' && report.kind === 'video') {
-                                jitterMs = (report.jitter || 0) * 1000;
-                            }
-                        });
-                        // WebRTC end-to-end latency ≈ jitter buffer + ~20ms encode/decode overhead
-                        // jitter alone is a lower bound; add 20ms as encode/decode estimate
-                        if (jitterMs !== null) {
-                            _setLatencyBadge(Math.round(jitterMs + 20));
+                if (!_webrtcLatencyInterval) {
+                    _webrtcLatencyInterval = setInterval(async () => {
+                        if (!webrtcPeerConn || currentPlayerMode !== 'webrtc') {
+                            clearInterval(_webrtcLatencyInterval);
+                            return;
                         }
-                    } catch (_) {}
-                }, 1000);
+                        try {
+                            const stats = await webrtcPeerConn.getStats();
+                            let jitterMs = null;
+                            stats.forEach(report => {
+                                if (report.type === 'inbound-rtp' && report.kind === 'video') {
+                                    jitterMs = (report.jitter || 0) * 1000;
+                                }
+                            });
+                            if (jitterMs !== null) {
+                                _setLatencyBadge(Math.round(jitterMs + 20));
+                            }
+                        } catch (_) {}
+                    }, 1000);
 
-                // Also hook original close to clear the interval
-                const origClose = webrtcPeerConn.close.bind(webrtcPeerConn);
-                webrtcPeerConn.close = () => {
-                    if (_webrtcLatencyInterval) { clearInterval(_webrtcLatencyInterval); _webrtcLatencyInterval = null; }
-                    origClose();
-                };
+                    // Hook close to clear the interval
+                    const origClose = webrtcPeerConn.close.bind(webrtcPeerConn);
+                    webrtcPeerConn.close = () => {
+                        if (_webrtcLatencyInterval) { clearInterval(_webrtcLatencyInterval); _webrtcLatencyInterval = null; }
+                        origClose();
+                    };
+                }
             }
         };
 

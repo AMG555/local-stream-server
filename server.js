@@ -197,7 +197,8 @@ function getLocalIP() {
 const LOCAL_IP = getLocalIP();
 const HTTP_PORT = 8000;
 const RTMP_PORT = 1935;
-const MEDIA_PORT = 8081; // Changed from 8080 to avoid conflict
+const MEDIA_PORT = 8081;
+const GO_RTMP_PORT = 1936; // Go media server RTMP port (for WebSocket/WebRTC fan-out)
 
 // Node-Media-Server configuration
 // logType 0 = silent — NMS v2.7.4 has a harmless internal error
@@ -230,11 +231,23 @@ const config = {
         // delete_segments: Remove old segments
         // independent_segments: Every segment is independent
         // omit_endlist: Signals live stream for immediate playback
-        hlsKeep: false, // Auto-cleanup segments when stream ends
+        hlsKeep: false,
         dash: false
       }
     ]
-  } : undefined
+  } : undefined,
+  // Relay every incoming RTMP stream to the Go media server so WebSocket
+  // and WebRTC viewers (port 8084) get the stream data.
+  relay: {
+    ffmpeg: FFMPEG_PATH || 'ffmpeg',
+    tasks: [
+      {
+        mode: 'push',
+        edge: `rtmp://127.0.0.1:${GO_RTMP_PORT}`,
+        app: 'live',
+      }
+    ]
+  }
 };
 
 const nms = new NodeMediaServer(config);
