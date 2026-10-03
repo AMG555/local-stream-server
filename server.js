@@ -200,7 +200,11 @@ const RTMP_PORT = 1935;
 const MEDIA_PORT = 8081; // Changed from 8080 to avoid conflict
 
 // Node-Media-Server configuration
+// logType 0 = silent — NMS v2.7.4 has a harmless internal error
+// ("getFFmpegVersion is not a function") that pollutes the console.
+// We handle all logging ourselves, so suppress NMS output entirely.
 const config = {
+  logType: 0,
   rtmp: {
     port: RTMP_PORT,
     chunk_size: 60000,
@@ -209,7 +213,7 @@ const config = {
     ping_timeout: 60
   },
   http: {
-    port: MEDIA_PORT, // Use 8081 instead of 8080
+    port: MEDIA_PORT,
     mediaroot: './media',
     allow_origin: `http://${LOCAL_IP}:${HTTP_PORT}`
   },
@@ -792,9 +796,10 @@ server.listen(HTTP_PORT, () => {
   console.log('\n===========================================');
   console.log('🎥 Local Streaming Server Started!');
   console.log('===========================================');
-  console.log(`📡 RTMP Server: rtmp://${LOCAL_IP}:${RTMP_PORT}/live`);
-  console.log(`🌐 Web Interface: http://${LOCAL_IP}:${HTTP_PORT}`);
-  console.log(`📺 Media Server: http://${LOCAL_IP}:${MEDIA_PORT}`);
+  console.log(`📡 RTMP ingest:    rtmp://${LOCAL_IP}:${RTMP_PORT}/live`);
+  console.log(`🌐 Dashboard:      http://${LOCAL_IP}:${HTTP_PORT}`);
+  console.log(`📺 HLS playback:   http://${LOCAL_IP}:${MEDIA_PORT}`);
+  console.log(`${FFMPEG_PATH ? '✅' : '⚠️ '} FFmpeg:         ${FFMPEG_PATH || 'not found — HLS disabled'}`);
   console.log('===========================================\n');
   console.log('📝 To stream with OBS:');
   console.log('   1. Create a stream key at the web interface');
