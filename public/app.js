@@ -1047,27 +1047,22 @@ function playStream(streamKey, title) {
         hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
             // Always jump to LIVE edge (like YouTube)
             seekToLive();
-            // Start muted (required for Chrome autoplay policy), then unmute
-            // automatically once the browser allows it (user has interacted with page)
-            video.muted = true;
-            video.play().then(() => {
-                // Autoplay succeeded — unmute now so audio plays
-                video.muted = false;
-            }).catch(err => {
-                console.warn('Autoplay blocked:', err);
-                showWarningNotification('Click play button to start stream');
+            // Try to play with audio first. If Chrome blocks it (autoplay policy),
+            // fall back to muted autoplay and then immediately unmute — the user
+            // opening the modal counts as a gesture so unmuting works right away.
+            video.muted = false;
+            video.play().catch(() => {
+                // Autoplay blocked without gesture — mute and retry
+                video.muted = true;
+                video.play().then(() => {
+                    // Unmute immediately: modal click = user gesture
+                    video.muted = false;
+                }).catch(err => {
+                    console.warn('Autoplay blocked even muted:', err);
+                    showWarningNotification('Click the play button to start stream');
+                });
             });
         });
-
-        // Belt-and-suspenders: unmute on first user click anywhere in the modal
-        const _onceUnmute = () => {
-            if (video.muted) {
-                video.muted = false;
-                console.log('HLS: unmuted on user interaction');
-            }
-            document.removeEventListener('click', _onceUnmute, { capture: true });
-        };
-        document.addEventListener('click', _onceUnmute, { capture: true, once: true });
         
         // Auto-reconnect on errors (like YouTube does)
         hlsInstance.on(Hls.Events.ERROR, (event, data) => {
