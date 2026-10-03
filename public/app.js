@@ -797,31 +797,26 @@ function updateStreamStats(key, stats) {
     const playerKey = document.getElementById('videoPlayer')?.dataset.streamKey;
     
     if (playerKey === key) {
-        const latency = calculateLatency();
-        const latencyText = latency !== null ? `${latency.toFixed(1)}s latency` : '-- latency';
-        const latencyClass = latency === null ? 'low' : latency < 2 ? 'low' : latency < 5 ? 'medium' : 'high';
-        
         document.getElementById('playerBitrate').textContent = `${stats.bitrate} kbps`;
         document.getElementById('playerFps').textContent = `${stats.fps} fps`;
         document.getElementById('playerResolution').textContent = stats.resolution;
         document.getElementById('playerDuration').textContent = formatDuration(stats.duration);
-        
-        // Add latency indicator
+
+        // Ensure latency badge exists (created once, updated by _setLatencyBadge)
         const statsOverlay = document.getElementById('streamStatsOverlay');
         if (statsOverlay && !statsOverlay.querySelector('.latency-badge')) {
             const latencyBadge = document.createElement('div');
-            latencyBadge.className = `stat-item latency-badge latency-${latencyClass}`;
+            latencyBadge.className = 'stat-item latency-badge latency-low';
             latencyBadge.innerHTML = `
                 <i class="fas fa-tachometer-alt"></i>
-                <span id="playerLatency">${latencyText}</span>
+                <span id="playerLatency">-- latency</span>
             `;
             statsOverlay.appendChild(latencyBadge);
-        } else {
-            const latencyEl = document.getElementById('playerLatency');
-            if (latencyEl) {
-                latencyEl.textContent = latencyText;
-                latencyEl.parentElement.className = `stat-item latency-badge latency-${latencyClass}`;
-            }
+        }
+        // For HLS mode: update latency from HLS.js API (in ms)
+        if (currentPlayerMode === 'hls' && hlsInstance) {
+            const lat = hlsInstance.latency;
+            _setLatencyBadge(lat !== undefined && isFinite(lat) ? lat * 1000 : null);
         }
     }
     
@@ -842,12 +837,36 @@ function updateStreamStats(key, stats) {
 }
 
 function calculateLatency() {
-    // REAL latency from HLS.js player: difference between live edge and current position
-    const video = document.getElementById('videoPlayer');
-    if (hlsInstance && video && video.duration > 0 && isFinite(video.duration)) {
-        return Math.max(0, video.duration - video.currentTime);
+    // Use HLS.js built-in latency for live streams (video.duration is Infinity for live HLS)
+    if (hlsInstance) {
+        const lat = hlsInstance.latency;           // seconds behind live edge (HLS.js API)
+        if (lat !== undefined && isFinite(lat) && lat >= 0) return lat;
+        // Fallback: use liveSyncPosition if latency not yet available
+        const video = document.getElementById('videoPlayer');
+        if (video && hlsInstance.liveSyncPosition && video.currentTime > 0) {
+            return Math.max(0, hlsInstance.liveSyncPosition - video.currentTime);
+        }
     }
     return null; // No data yet
+}
+
+/**
+ * Update the latency badge element with a real measured value.
+ * Pass latencyMs in milliseconds for WS/WebRTC, or seconds for HLS.
+ */
+function _setLatencyBadge(valueMs) {
+    const latencyEl = document.getElementById('playerLatency');
+    if (!latencyEl) return;
+    if (valueMs === null || !isFinite(valueMs)) {
+        latencyEl.textContent = '-- latency';
+        latencyEl.parentElement.className = 'stat-item latency-badge latency-low';
+        return;
+    }
+    const ms = Math.round(valueMs);
+    const label = ms < 1000 ? `${ms}ms latency` : `${(ms / 1000).toFixed(1)}s latency`;
+    const cls   = ms < 500 ? 'low' : ms < 2000 ? 'medium' : 'high';
+    latencyEl.textContent = label;
+    latencyEl.parentElement.className = `stat-item latency-badge latency-${cls}`;
 }
 
 // Modal functions
@@ -1078,14 +1097,12 @@ function playStream(streamKey, title) {
                 const goLiveBtn = document.getElementById('goLiveBtn');
                 const liveIndicator = document.getElementById('liveIndicator');
                 
-                // Update real-time latency display
-                const latencyEl = document.getElementById('playerLatency');
-                if (latencyEl) {
-                    const latency = Math.max(0, lag);
-                    latencyEl.textContent = `${latency.toFixed(1)}s latency`;
-                    const latencyClass = latency < 2 ? 'low' : latency < 5 ? 'medium' : 'high';
-                    latencyEl.parentElement.className = `stat-item latency-badge latency-${latencyClass}`;
-                }
+                // Update real-time latency display — use HLS.js latency API (not video.duration)
+                const hlsLat = hlsInstance ? hlsInstance.latency : null;
+                const latMs  = (hlsLat !== undefined && isFinite(hlsLat) && hlsLat >= 0)
+                    ? hlsLat * 1000
+                    : Math.max(0, lag) * 1000;
+                _setLatencyBadge(latMs);
                 
                 if (lag > 2) { // If more than 2 seconds behind, show button
                     if (goLiveBtn) goLiveBtn.style.display = 'flex';
@@ -1398,6 +1415,9 @@ function switchPlayerMode(mode, btn) {
 
     currentPlayerMode = mode;
 
+    // Reset latency badge — new mode will populate it once connected
+    _setLatencyBadge(null);
+
     // Show/hide the correct player element.
     // Note: WS mode reuses hlsVideo (flv.js attaches to it) — wsCanvas is unused.
     const hlsVideo   = document.getElementById('videoPlayer');
@@ -1487,67 +1507,77 @@ async function _startWebSocketPlayer(streamKey) {
         return;
     }
 
-    try {
-        // Probe the Go server is reachable before connecting flv.js
-        const probe = new WebSocket(wsUrl);
-        await new Promise((resolve, reject) => {
-            probe.onopen  = () => { probe.close(); resolve(); };
-            probe.onerror = () => reject(new Error('Go server unreachable'));
-            setTimeout(() => reject(new Error('timeout')), 3000);
-        });
-    } catch (err) {
-        showWarningNotification('WebSocket player: Go media server not running on port 8084. Use HLS mode.');
-        hlsVideo.style.display = 'none';
-        return;
+    if (flvPlayerInstance) {
+        flvPlayerInstance.destroy();
+        flvPlayerInstance = null;
     }
 
-    try {
+    flvPlayerInstance = flvjs.createPlayer({
+        type: 'flv',
+        isLive: true,
+        url: wsUrl,
+    }, {
+        enableWorker: false,        // worker breaks in some CSP setups
+        lazyLoadMaxDuration: 3 * 60,
+        seekType: 'range',
+        liveBufferLatencyChasing: true,
+        liveBufferLatencyMaxLatency: 1.5,   // chase to within 1.5s
+        liveBufferLatencyMinRemain: 0.2,
+    });
+
+    flvPlayerInstance.attachMediaElement(hlsVideo);
+
+    // Real-time latency for WS/FLV: track wall-clock offset on first media chunk
+    let _wsStreamStartWall = null;  // Date.now() when first frame received
+    let _wsStreamStartPts  = null;  // PTS (ms) of first frame
+    let _wsLatencyInterval = null;
+
+    flvPlayerInstance.on(flvjs.Events.STATISTICS_INFO, (info) => {
+        // flv.js exposes decodedFrames, currentTime, etc.
+        // Use video element's buffered end vs currentTime as WS latency proxy
+        const vid = document.getElementById('videoPlayer');
+        if (vid && vid.buffered.length > 0) {
+            const bufferEnd = vid.buffered.end(vid.buffered.length - 1);
+            const latencyMs = Math.max(0, (bufferEnd - vid.currentTime) * 1000);
+            _setLatencyBadge(latencyMs);
+        }
+    });
+
+    flvPlayerInstance.on(flvjs.Events.ERROR, (errType, errDetail) => {
+        console.error('flv.js error:', errType, errDetail);
+        if (errType === flvjs.ErrorTypes.NETWORK_ERROR) {
+            showWarningNotification('WebSocket player: Go media server not running on port 8084. Use HLS mode.');
+        } else {
+            showErrorNotification(`WebSocket player error: ${errType}`);
+        }
+        if (_wsLatencyInterval) { clearInterval(_wsLatencyInterval); _wsLatencyInterval = null; }
+    });
+
+    // Poll latency every 500ms using buffer lead as a proxy for end-to-end delay
+    _wsLatencyInterval = setInterval(() => {
+        const vid = document.getElementById('videoPlayer');
+        if (vid && vid.buffered.length > 0 && currentPlayerMode === 'ws') {
+            const bufEnd = vid.buffered.end(vid.buffered.length - 1);
+            _setLatencyBadge(Math.max(0, (bufEnd - vid.currentTime) * 1000));
+        }
+    }, 500);
+
+    flvPlayerInstance.load();
+    hlsVideo.play().catch(e => console.warn('flv autoplay blocked:', e));
+
+    // Store the connection reference so _teardownCurrentPlayer can clean up
+    wsPlayerConn = { close: () => {
+        if (_wsLatencyInterval) { clearInterval(_wsLatencyInterval); _wsLatencyInterval = null; }
         if (flvPlayerInstance) {
+            flvPlayerInstance.pause();
+            flvPlayerInstance.unload();
+            flvPlayerInstance.detachMediaElement();
             flvPlayerInstance.destroy();
             flvPlayerInstance = null;
         }
+    }};
 
-        flvPlayerInstance = flvjs.createPlayer({
-            type: 'flv',
-            isLive: true,
-            url: wsUrl,
-        }, {
-            enableWorker: false,        // worker breaks in some CSP setups
-            lazyLoadMaxDuration: 3 * 60,
-            seekType: 'range',
-            liveBufferLatencyChasing: true,
-            liveBufferLatencyMaxLatency: 1.5,   // chase to within 1.5s
-            liveBufferLatencyMinRemain: 0.2,
-        });
-
-        flvPlayerInstance.attachMediaElement(hlsVideo);
-        flvPlayerInstance.load();
-        hlsVideo.play().catch(e => console.warn('flv autoplay blocked:', e));
-
-        flvPlayerInstance.on(flvjs.Events.ERROR, (errType, errDetail) => {
-            console.error('flv.js error:', errType, errDetail);
-            if (errType === flvjs.ErrorTypes.NETWORK_ERROR) {
-                showWarningNotification('WebSocket stream: connection lost');
-            } else {
-                showErrorNotification(`WebSocket player error: ${errType}`);
-            }
-        });
-
-        // Store the connection reference so _teardownCurrentPlayer can clean up
-        wsPlayerConn = { close: () => {
-            if (flvPlayerInstance) {
-                flvPlayerInstance.pause();
-                flvPlayerInstance.unload();
-                flvPlayerInstance.detachMediaElement();
-                flvPlayerInstance.destroy();
-                flvPlayerInstance = null;
-            }
-        }};
-
-        showSuccessNotification('WebSocket stream connected via flv.js MSE (~300ms latency)');
-    } catch (err) {
-        showErrorNotification('WebSocket player failed: ' + err.message);
-    }
+    showSuccessNotification('WebSocket stream connected via flv.js MSE');
 }
 
 // ─── WebRTC Player ───────────────────────────────────────────────────────────
@@ -1559,6 +1589,9 @@ async function _startWebRTCPlayer(streamKey) {
     const goPort = 8084;
     const webrtcVid = document.getElementById('webrtcPlayer');
     webrtcVid.style.display = 'block';
+
+    // Real-time latency poll interval (cleared on teardown)
+    let _webrtcLatencyInterval = null;
 
     try {
         const pc = new RTCPeerConnection({
@@ -1573,7 +1606,37 @@ async function _startWebRTCPlayer(streamKey) {
             if (evt.streams && evt.streams[0]) {
                 webrtcVid.srcObject = evt.streams[0];
                 webrtcVid.play().catch(e => console.warn('WebRTC autoplay blocked:', e));
-                showSuccessNotification('WebRTC stream connected (~50ms latency)');
+                showSuccessNotification('WebRTC stream connected');
+
+                // Start real-time latency measurement via RTCPeerConnection.getStats()
+                _webrtcLatencyInterval = setInterval(async () => {
+                    if (!webrtcPeerConn || currentPlayerMode !== 'webrtc') {
+                        clearInterval(_webrtcLatencyInterval);
+                        return;
+                    }
+                    try {
+                        const stats = await webrtcPeerConn.getStats();
+                        let jitterMs = null;
+                        stats.forEach(report => {
+                            // inbound-rtp video track gives us jitter (network jitter ≈ lower bound)
+                            if (report.type === 'inbound-rtp' && report.kind === 'video') {
+                                jitterMs = (report.jitter || 0) * 1000;
+                            }
+                        });
+                        // WebRTC end-to-end latency ≈ jitter buffer + ~20ms encode/decode overhead
+                        // jitter alone is a lower bound; add 20ms as encode/decode estimate
+                        if (jitterMs !== null) {
+                            _setLatencyBadge(Math.round(jitterMs + 20));
+                        }
+                    } catch (_) {}
+                }, 1000);
+
+                // Also hook original close to clear the interval
+                const origClose = webrtcPeerConn.close.bind(webrtcPeerConn);
+                webrtcPeerConn.close = () => {
+                    if (_webrtcLatencyInterval) { clearInterval(_webrtcLatencyInterval); _webrtcLatencyInterval = null; }
+                    origClose();
+                };
             }
         };
 
@@ -1591,6 +1654,7 @@ async function _startWebRTCPlayer(streamKey) {
         pc.onconnectionstatechange = () => {
             if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
                 showWarningNotification('WebRTC connection lost');
+                if (_webrtcLatencyInterval) { clearInterval(_webrtcLatencyInterval); _webrtcLatencyInterval = null; }
             }
         };
 
@@ -1605,7 +1669,7 @@ async function _startWebRTCPlayer(streamKey) {
             { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(offer) }
         );
 
-        if (!resp.ok) throw new Error(`Signaling error: ${resp.status}`);
+        if (!resp.ok) throw new Error(`Signaling failed: ${resp.status} — Go media server not running`);
 
         const body = await resp.json();
         // Server returns { answer: SDP, peerId: string }
@@ -1613,7 +1677,13 @@ async function _startWebRTCPlayer(streamKey) {
         await pc.setRemoteDescription(body.answer || body);
 
     } catch (err) {
-        showWarningNotification('WebRTC unavailable — Go media server not running on port 8084. Use HLS mode.');
+        if (_webrtcLatencyInterval) { clearInterval(_webrtcLatencyInterval); _webrtcLatencyInterval = null; }
+        const isServerDown = err.message.includes('Failed to fetch') || err.message.includes('Go media server');
+        showWarningNotification(
+            isServerDown
+                ? 'WebRTC unavailable — Go media server not running on port 8084. Use HLS mode.'
+                : `WebRTC error: ${err.message}`
+        );
         webrtcVid.style.display = 'none';
     }
 }
