@@ -433,13 +433,17 @@ app.delete('/api/stream/:key', requireAPIKey, deleteStreamLimiter, (req, res) =>
 });
 
 // Get server info (public — does NOT expose ffmpegPath to avoid leaking disk layout)
+const SRT_PORT = 8554; // must match go-media-server/config.yml srt.port
+
 app.get('/api/info', (req, res) => {
   res.json({
     localIP: LOCAL_IP,
     rtmpPort: RTMP_PORT,
+    srtPort: SRT_PORT,
     httpPort: HTTP_PORT,
     mediaPort: MEDIA_PORT,
     rtmpUrl: `rtmp://${LOCAL_IP}:${RTMP_PORT}/live`,
+    srtUrl: `srt://${LOCAL_IP}:${SRT_PORT}`,
     totalStreams: streamKeys.size,
     activeStreams: activeStreams.size,
     ffmpegAvailable: FFMPEG_PATH !== null

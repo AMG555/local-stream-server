@@ -366,7 +366,10 @@ async function deleteCurrentStream() {
 
 // UI functions
 function updateServerInfo() {
-    document.getElementById('rtmpPort').textContent = serverInfo.rtmpPort;
+    document.getElementById('rtmpPort').textContent = serverInfo.rtmpPort || 1935;
+    if (document.getElementById('srtPort')) {
+        document.getElementById('srtPort').textContent = serverInfo.srtPort || 8554;
+    }
     document.getElementById('activeCount').textContent = serverInfo.activeStreams;
     document.getElementById('totalKeys').textContent = serverInfo.totalStreams;
 }
@@ -800,11 +803,54 @@ function hideCreateStreamModal() {
 
 function showStreamDetails(data) {
     document.getElementById('detailsTitle').textContent = data.title;
+
+    // RTMP fields
     document.getElementById('detailsRtmpUrl').value = data.rtmpUrl;
     document.getElementById('detailsStreamKey').value = data.streamKey;
     document.getElementById('detailsPlaybackUrl').value = data.streamUrl;
+
+    // SRT fields — build the full srt:// URL with streamid in OBS format
+    const srtBase = serverInfo.srtUrl || `srt://${serverInfo.localIP || 'localhost'}:8554`;
+    const srtUrl = `${srtBase}?streamid=key=${data.streamKey}&latency=120000`;
+    document.getElementById('detailsSrtUrl').value = srtUrl;
+    document.getElementById('detailsStreamKeySrt').value = data.streamKey;
+    // WS playback URL for SRT ingest (Go server port 8084)
+    const goApiBase = `ws://${serverInfo.localIP || 'localhost'}:8084`;
+    document.getElementById('detailsPlaybackUrlSrt').value = `${goApiBase}/ws?key=${data.streamKey}`;
+
+    // Update FFmpeg command in SRT panel
+    const ffmpegEl = document.getElementById('srtFfmpegCmd');
+    if (ffmpegEl) {
+        ffmpegEl.textContent = `ffmpeg -re -i input.mp4 -c copy -f mpegts "${srtUrl}"`;
+    }
+
+    // Reset protocol tab to RTMP on open
+    switchIngestProtocol('rtmp', document.getElementById('protocolBtnRtmp'));
+
     currentStreamKey = data.streamKey;
     document.getElementById('streamDetailsModal').classList.add('active');
+}
+
+/**
+ * Switch between RTMP and SRT ingest protocol tabs in the stream details modal.
+ */
+function switchIngestProtocol(protocol, btn) {
+    const rtmpPanel = document.getElementById('ingestPanelRtmp');
+    const srtPanel  = document.getElementById('ingestPanelSrt');
+    const rtmpBtn   = document.getElementById('protocolBtnRtmp');
+    const srtBtn    = document.getElementById('protocolBtnSrt');
+
+    if (protocol === 'rtmp') {
+        rtmpPanel.style.display = '';
+        srtPanel.style.display  = 'none';
+        rtmpBtn.classList.add('active');
+        srtBtn.classList.remove('active');
+    } else {
+        rtmpPanel.style.display = 'none';
+        srtPanel.style.display  = '';
+        srtBtn.classList.add('active');
+        rtmpBtn.classList.remove('active');
+    }
 }
 
 async function showStreamDetailsById(streamKey) {
@@ -833,6 +879,7 @@ function hideStreamDetailsModal() {
 function showServerInfo() {
     document.getElementById('infoLocalIP').textContent = serverInfo.localIP;
     document.getElementById('infoRtmpPort').textContent = serverInfo.rtmpPort;
+    document.getElementById('infoSrtPort').textContent = serverInfo.srtPort || 8554;
     document.getElementById('infoHttpPort').textContent = serverInfo.httpPort;
     document.getElementById('infoMediaPort').textContent = serverInfo.mediaPort;
     document.getElementById('serverInfoModal').classList.add('active');

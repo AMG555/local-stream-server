@@ -70,6 +70,10 @@
                         <div id="rtmpPort">1935</div>
                     </div>
                     <div class="info-item">
+                        <small>SRT Port</small>
+                        <div id="srtPort">8554</div>
+                    </div>
+                    <div class="info-item">
                         <small>Active Streams</small>
                         <div id="activeCount">0</div>
                     </div>
@@ -296,68 +300,115 @@
                 <button class="close-btn" onclick="hideStreamDetailsModal()">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="detail-section">
-                    <label>RTMP Server URL</label>
-                    <div class="copy-field">
-                        <input type="text" id="detailsRtmpUrl" readonly class="input">
-                        <button onclick="copyToClipboard('detailsRtmpUrl')" class="btn-icon" aria-label="Copy RTMP URL">
-                            <i class="fas fa-copy"></i>
-                        </button>
-                    </div>
-                    <small style="color: var(--text-secondary); display: block; margin-top: 5px;">
-                        Same format as YouTube Live: rtmp://server/application
-                    </small>
+                <!-- Ingest protocol selector -->
+                <div class="protocol-tab-bar" style="display:flex; gap:8px; margin-bottom:18px;">
+                    <button class="protocol-tab-btn active" id="protocolBtnRtmp" onclick="switchIngestProtocol('rtmp', this)">
+                        <i class="fas fa-stream"></i> RTMP
+                        <small style="display:block; font-size:10px; opacity:0.75;">OBS / vMix / Wirecast</small>
+                    </button>
+                    <button class="protocol-tab-btn" id="protocolBtnSrt" onclick="switchIngestProtocol('srt', this)">
+                        <i class="fas fa-bolt"></i> SRT
+                        <small style="display:block; font-size:10px; opacity:0.75;">~120ms · ultra-low latency</small>
+                    </button>
                 </div>
-                <div class="detail-section">
-                    <label>Stream Key (Like YouTube Live)</label>
-                    <div class="copy-field">
-                        <input type="text" id="detailsStreamKey" readonly class="input">
-                        <button onclick="copyToClipboard('detailsStreamKey')" class="btn-icon" aria-label="Copy stream key">
-                            <i class="fas fa-copy"></i>
-                        </button>
+
+                <!-- RTMP panel -->
+                <div id="ingestPanelRtmp">
+                    <div class="detail-section">
+                        <label>RTMP Server URL</label>
+                        <div class="copy-field">
+                            <input type="text" id="detailsRtmpUrl" readonly class="input">
+                            <button onclick="copyToClipboard('detailsRtmpUrl')" class="btn-icon" aria-label="Copy RTMP URL">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                        <small style="color: var(--text-secondary); display: block; margin-top: 5px;">
+                            Same format as YouTube Live: rtmp://server/application
+                        </small>
                     </div>
-                    <small style="color: var(--text-secondary); display: block; margin-top: 5px;">
-                        <i class="fas fa-lock"></i> Keep this secret! Anyone with this key can stream to your server.
-                    </small>
-                </div>
-                <div class="detail-section">
-                    <label>Playback URL (HLS)</label>
-                    <div class="copy-field">
-                        <input type="text" id="detailsPlaybackUrl" readonly class="input">
-                        <button onclick="copyToClipboard('detailsPlaybackUrl')" class="btn-icon" aria-label="Copy playback URL">
-                            <i class="fas fa-copy"></i>
-                        </button>
+                    <div class="detail-section">
+                        <label>Stream Key</label>
+                        <div class="copy-field">
+                            <input type="text" id="detailsStreamKey" readonly class="input">
+                            <button onclick="copyToClipboard('detailsStreamKey')" class="btn-icon" aria-label="Copy stream key">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                        <small style="color: var(--text-secondary); display: block; margin-top: 5px;">
+                            <i class="fas fa-lock"></i> Keep this secret — anyone with it can stream to your server.
+                        </small>
+                    </div>
+                    <div class="detail-section">
+                        <label>Playback URL (HLS)</label>
+                        <div class="copy-field">
+                            <input type="text" id="detailsPlaybackUrl" readonly class="input">
+                            <button onclick="copyToClipboard('detailsPlaybackUrl')" class="btn-icon" aria-label="Copy playback URL">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="alert alert-info" style="margin-top:14px;">
+                        <i class="fas fa-lightbulb"></i>
+                        <div>
+                            <strong>OBS Studio → Settings → Stream</strong>
+                            <ul style="margin: 6px 0 0 18px; padding: 0; line-height:1.8;">
+                                <li>Service: <strong>Custom</strong></li>
+                                <li>Server: <em>RTMP Server URL above</em></li>
+                                <li>Stream Key: <em>Stream Key above</em></li>
+                                <li>Encoder: x264 / NVENC H.264 · CBR · Keyframe: 1s</li>
+                            </ul>
+                        </div>
                     </div>
                 </div>
-                
-                <!-- YouTube-like recommended settings -->
-                <div id="recommendedSettings" class="alert alert-info" style="margin-top: 15px;">
-                    <i class="fas fa-lightbulb"></i>
-                    <div>
-                        <strong>Recommended OBS Settings (YouTube Standard):</strong>
-                        <ul style="margin: 8px 0 0 20px; padding: 0;">
-                            <li><strong>Encoder:</strong> x264 or NVENC H.264</li>
-                            <li><strong>Rate Control:</strong> CBR (Constant Bitrate)</li>
-                            <li><strong>Bitrate:</strong> 2500-6000 kbps</li>
-                            <li><strong>Keyframe Interval:</strong> 2 seconds</li>
-                            <li><strong>Preset:</strong> veryfast to medium</li>
-                            <li><strong>Profile:</strong> high</li>
-                            <li><strong>Tune:</strong> zerolatency</li>
-                        </ul>
+
+                <!-- SRT panel (hidden by default) -->
+                <div id="ingestPanelSrt" style="display:none;">
+                    <div class="detail-section">
+                        <label>SRT URL (paste directly into OBS / FFmpeg)</label>
+                        <div class="copy-field">
+                            <input type="text" id="detailsSrtUrl" readonly class="input" style="font-family:monospace; font-size:12px;">
+                            <button onclick="copyToClipboard('detailsSrtUrl')" class="btn-icon" aria-label="Copy SRT URL">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                        <small style="color: var(--text-secondary); display: block; margin-top: 5px;">
+                            Latency: ~120ms · Port 8554 · Go media server
+                        </small>
                     </div>
-                </div>
-                <div class="alert alert-info">
-                    <i class="fas fa-info-circle"></i>
-                    <div>
-                        <strong>OBS Studio Setup:</strong>
-                        <ol>
-                            <li>Open OBS Studio</li>
-                            <li>Go to Settings → Stream</li>
-                            <li>Service: Custom</li>
-                            <li>Server: Copy the RTMP Server URL above</li>
-                            <li>Stream Key: Copy the Stream Key above</li>
-                            <li>Click OK and Start Streaming!</li>
-                        </ol>
+                    <div class="detail-section">
+                        <label>Stream Key (same key, used in SRT StreamID)</label>
+                        <div class="copy-field">
+                            <input type="text" id="detailsStreamKeySrt" readonly class="input">
+                            <button onclick="copyToClipboard('detailsStreamKeySrt')" class="btn-icon" aria-label="Copy stream key">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="detail-section">
+                        <label>Playback URL (WebSocket/FLV — lowest latency with SRT ingest)</label>
+                        <div class="copy-field">
+                            <input type="text" id="detailsPlaybackUrlSrt" readonly class="input">
+                            <button onclick="copyToClipboard('detailsPlaybackUrlSrt')" class="btn-icon" aria-label="Copy WS playback URL">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="alert alert-info" style="margin-top:14px;">
+                        <i class="fas fa-bolt"></i>
+                        <div>
+                            <strong>OBS Studio → Settings → Stream (SRT)</strong>
+                            <ul style="margin: 6px 0 0 18px; padding: 0; line-height:1.8;">
+                                <li>Service: <strong>Custom</strong></li>
+                                <li>Server: <em>SRT URL above</em> (paste the full srt:// URL)</li>
+                                <li>Stream Key: <em>leave blank</em> (key is in the URL)</li>
+                                <li>Encoder: x264 / NVENC H.264 · CBR · Keyframe: 1s</li>
+                            </ul>
+                            <hr style="margin:10px 0; border-color:rgba(255,255,255,0.1);">
+                            <strong>FFmpeg</strong>
+                            <div style="margin-top:6px; font-family:monospace; font-size:11px; background:rgba(0,0,0,0.25); padding:8px; border-radius:4px; word-break:break-all;" id="srtFfmpegCmd">
+                                ffmpeg -re -i input.mp4 -c copy -f mpegts "srt://IP:8554?streamid=key=STREAMKEY&latency=120000"
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -386,6 +437,10 @@
                     <div class="info-row">
                         <span>RTMP Port:</span>
                         <strong id="infoRtmpPort">-</strong>
+                    </div>
+                    <div class="info-row">
+                        <span>SRT Port:</span>
+                        <strong id="infoSrtPort">8554</strong>
                     </div>
                     <div class="info-row">
                         <span>HTTP Port:</span>

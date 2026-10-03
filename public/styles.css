@@ -1452,6 +1452,38 @@ button .fa-spinner {
     padding: 5px 12px;
 }
 
+
+/* ─── Protocol selector tabs (RTMP / SRT in stream details modal) ───────────── */
+
+.protocol-tab-btn {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 8px 20px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.15s ease;
+    min-width: 100px;
+}
+
+.protocol-tab-btn:hover {
+    border-color: var(--secondary-color);
+    color: var(--text-primary);
+}
+
+.protocol-tab-btn.active {
+    border-color: var(--secondary-color);
+    background: rgba(6, 95, 212, 0.15);
+    color: var(--text-primary);
+}
+
+
 /* ─── Phase 2: Small buttons ─────────────────────────────────────────────────── */
 
 .btn-sm {
