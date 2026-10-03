@@ -1047,11 +1047,27 @@ function playStream(streamKey, title) {
         hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
             // Always jump to LIVE edge (like YouTube)
             seekToLive();
-            video.play().catch(err => {
+            // Start muted (required for Chrome autoplay policy), then unmute
+            // automatically once the browser allows it (user has interacted with page)
+            video.muted = true;
+            video.play().then(() => {
+                // Autoplay succeeded — unmute now so audio plays
+                video.muted = false;
+            }).catch(err => {
                 console.warn('Autoplay blocked:', err);
                 showWarningNotification('Click play button to start stream');
             });
         });
+
+        // Belt-and-suspenders: unmute on first user click anywhere in the modal
+        const _onceUnmute = () => {
+            if (video.muted) {
+                video.muted = false;
+                console.log('HLS: unmuted on user interaction');
+            }
+            document.removeEventListener('click', _onceUnmute, { capture: true });
+        };
+        document.addEventListener('click', _onceUnmute, { capture: true, once: true });
         
         // Auto-reconnect on errors (like YouTube does)
         hlsInstance.on(Hls.Events.ERROR, (event, data) => {
