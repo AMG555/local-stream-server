@@ -161,14 +161,21 @@ loadStreamKeys();
 
 // Auto-generate first API key if none exist (first-run UX)
 if (listAPIKeys().length === 0) {
-  const { key: firstKey } = generateAPIKey('Dashboard (auto-generated)');
+  generateAPIKey('Dashboard (auto-generated)');
+}
+
+// Always print all API keys on startup so the key is never lost
+{
+  const API_KEYS_FILE = path.join(__dirname, 'api-keys.json');
+  const keys = JSON.parse(fs.readFileSync(API_KEYS_FILE, 'utf8'));
   console.log('\n╔══════════════════════════════════════════════════════╗');
-  console.log('║  🔑 First-run: API key auto-generated               ║');
+  console.log('║  🔑 API Keys                                         ║');
   console.log('║                                                      ║');
-  console.log(`║  ${firstKey}  ║`);
-  console.log('║                                                      ║');
-  console.log('║  Save this key — it will not be shown again.        ║');
-  console.log('║  Paste it in the browser prompt when asked.         ║');
+  keys.forEach(k => {
+    console.log(`║  Name: ${k.name.padEnd(44)}║`);
+    console.log(`║  ${k.key}  ║`);
+    console.log('║                                                      ║');
+  });
   console.log('╚══════════════════════════════════════════════════════╝\n');
 }
 
