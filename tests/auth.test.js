@@ -1,10 +1,22 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
 import { createRequire } from 'module';
 import { randomUUID } from 'crypto';
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 // auth.js uses CommonJS — load it fresh for each test to avoid key state leakage.
-// We reload by clearing the require cache.
+// We redirect it to a temp file so it never touches the real api-keys.json.
 const require = createRequire(import.meta.url);
+
+const tmpDir = mkdtempSync(join(tmpdir(), 'stream-auth-test-'));
+const tmpKeysFile = join(tmpDir, 'api-keys.json');
+process.env.API_KEYS_FILE = tmpKeysFile;
+
+afterAll(() => {
+  delete process.env.API_KEYS_FILE;
+  try { rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {}
+});
 
 function freshAuth() {
   // Clear the module from require cache so each describe block starts clean.

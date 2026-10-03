@@ -2,8 +2,8 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-// API keys storage
-const API_KEYS_FILE = path.join(__dirname, 'api-keys.json');
+// API keys storage — override with API_KEYS_FILE env var so tests can use a temp file
+const API_KEYS_FILE = process.env.API_KEYS_FILE || path.join(__dirname, 'api-keys.json');
 // keyed by full key string
 const apiKeys = new Map();
 // keyed by id (uuid) -> full key string, for revoke-by-id

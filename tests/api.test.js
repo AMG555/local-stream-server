@@ -11,8 +11,15 @@ import { createRequire } from 'module';
 import supertest from 'supertest';
 import express from 'express';
 import bodyParser from 'body-parser';
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 const require = createRequire(import.meta.url);
+
+// Redirect auth.js to a temp file so tests never touch the real api-keys.json
+const tmpDir = mkdtempSync(join(tmpdir(), 'stream-api-test-'));
+process.env.API_KEYS_FILE = join(tmpDir, 'api-keys.json');
 
 // Fresh auth module for each test file run
 const authKey = require.resolve('../auth.js');
@@ -144,6 +151,8 @@ beforeAll(() => {
 
 afterAll(() => {
   if (apiKey) auth.revokeAPIKey(apiKey);
+  delete process.env.API_KEYS_FILE;
+  try { rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {}
 });
 
 // ── /api/info ─────────────────────────────────────────────────────────────────
