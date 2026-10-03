@@ -1661,8 +1661,12 @@ async function _startWebRTCPlayer(streamKey) {
                     showSuccessNotification('WebRTC video connected');
                 }
 
-                // Start real-time latency measurement via RTCPeerConnection.getStats()
+                // Start real-time latency measurement via RTCPeerConnection.getStats().
+                // Use jitterBufferDelay/jitterBufferEmittedCount (W3C spec) which gives
+                // the actual decoded-frame delay in the jitter buffer — a real latency
+                // proxy. jitter alone (in seconds, usually <0.01) is not a latency metric.
                 if (!_webrtcLatencyInterval) {
+                    let _prevDelay = 0, _prevEmitted = 0;
                     _webrtcLatencyInterval = setInterval(async () => {
                         if (!webrtcPeerConn || currentPlayerMode !== 'webrtc') {
                             clearInterval(_webrtcLatencyInterval);
@@ -1670,15 +1674,22 @@ async function _startWebRTCPlayer(streamKey) {
                         }
                         try {
                             const stats = await webrtcPeerConn.getStats();
-                            let jitterMs = null;
                             stats.forEach(report => {
                                 if (report.type === 'inbound-rtp' && report.kind === 'video') {
-                                    jitterMs = (report.jitter || 0) * 1000;
+                                    const delay   = report.jitterBufferDelay   || 0;
+                                    const emitted = report.jitterBufferEmittedCount || 0;
+                                    const dDelay   = delay   - _prevDelay;
+                                    const dEmitted = emitted - _prevEmitted;
+                                    _prevDelay   = delay;
+                                    _prevEmitted = emitted;
+                                    if (dEmitted > 0) {
+                                        // Average jitter buffer delay per frame this interval (seconds → ms)
+                                        const avgDelayMs = (dDelay / dEmitted) * 1000;
+                                        // Add ~20 ms for network/encode overhead estimate
+                                        _setLatencyBadge(Math.round(avgDelayMs + 20));
+                                    }
                                 }
                             });
-                            if (jitterMs !== null) {
-                                _setLatencyBadge(Math.round(jitterMs + 20));
-                            }
                         } catch (_) {}
                     }, 1000);
 

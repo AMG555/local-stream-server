@@ -30,43 +30,37 @@ import (
 
 const (
 	opusSampleRate = 48000
-	// ADTS header fields for AAC-LC, 44100 Hz, stereo
-	// Fixed part we fill in per-frame with the frame length.
-	adtsSyncWord     = 0xFFF
-	adtsID           = 0   // MPEG-4
-	adtsLayer        = 0
-	adtsProtectionAbs = 1  // no CRC
-	adtsProfile      = 1   // AAC-LC (profile - 1 = 1)
-	adtsSampFreqIdx  = 4   // 44100 Hz → index 4
-	adtsPrivate      = 0
-	adtsChannelConf  = 2   // stereo
-	adtsOriginality  = 0
-	adtsHome         = 0
-	adtsCopyIDBit    = 0
-	adtsCopyIDStart  = 0
-	adtsNumAACFrames = 0   // 1 frame per ADTS packet (value = count - 1 = 0)
 )
+
+// adtsSampFreqTable maps MPEG-4 sampling_frequency_index to Hz.
+// Index 4 = 44100 Hz, Index 3 = 48000 Hz (ISO 14496-3 Table 1.21).
+var adtsSampFreqTable = []int{96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350}
 
 // aacTranscoder pipes raw AAC frames into FFmpeg and emits Opus packets.
 type aacTranscoder struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	mu     sync.Mutex // serialises writes to stdin
-	closed bool
+	cmd          *exec.Cmd
+	stdin        io.WriteCloser
+	mu           sync.Mutex // serialises writes to stdin
+	closed       bool
+	sampleRateHz int // input AAC sample rate (for ADTS header)
 }
 
 // newAACTranscoder starts an FFmpeg process for AAC→Opus transcoding.
 // ffmpegPath is the path to the ffmpeg binary (e.g. "ffmpeg" or absolute path).
+// sampleRateHz is the input sample rate (from AudioSpecificConfig); 44100 if unknown.
 // onPacket is called for each Opus packet produced; it runs on a goroutine
 // owned by the transcoder — callers must not block inside it.
-func newAACTranscoder(ffmpegPath string, onPacket func([]byte)) (*aacTranscoder, error) {
+func newAACTranscoder(ffmpegPath string, sampleRateHz int, onPacket func([]byte)) (*aacTranscoder, error) {
+	if sampleRateHz <= 0 {
+		sampleRateHz = 44100
+	}
 	cmd := exec.Command(ffmpegPath,
 		"-hide_banner", "-loglevel", "error",
 		"-f", "aac",      // input: ADTS-framed AAC on stdin
 		"-i", "pipe:0",
 		"-c:a", "libopus",
 		"-b:a", "96k",
-		"-ar", "48000",
+		"-ar", "48000",   // Opus always resamples to 48 kHz
 		"-ac", "2",
 		"-f", "ogg",      // output: Ogg container on stdout
 		"pipe:1",
@@ -91,7 +85,7 @@ func newAACTranscoder(ffmpegPath string, onPacket func([]byte)) (*aacTranscoder,
 		return nil, err
 	}
 
-	t := &aacTranscoder{cmd: cmd, stdin: stdin}
+	t := &aacTranscoder{cmd: cmd, stdin: stdin, sampleRateHz: sampleRateHz}
 
 	// Parse Ogg stream on stdout and emit Opus packets.
 	go func() {
@@ -110,12 +104,13 @@ func (t *aacTranscoder) WriteAAC(frame []byte) {
 	if t.closed {
 		return
 	}
-	adts := makeADTS(frame)
-	if _, err := t.stdin.Write(adts); err != nil {
+	adts := makeADTS(frame, t.sampleRateHz)
+	// Write ADTS header + frame as a single Write to avoid partial-packet issues.
+	buf := make([]byte, len(adts)+len(frame))
+	copy(buf, adts)
+	copy(buf[len(adts):], frame)
+	if _, err := t.stdin.Write(buf); err != nil {
 		// FFmpeg exited; mark closed so we stop writing
-		t.closed = true
-	}
-	if _, err := t.stdin.Write(frame); err != nil {
 		t.closed = true
 	}
 }
@@ -131,7 +126,8 @@ func (t *aacTranscoder) Close() {
 	t.stdin.Close()
 }
 
-// makeADTS builds a 7-byte ADTS header for one AAC-LC frame of len frameLen.
+// makeADTS builds a 7-byte ADTS header for one AAC-LC frame.
+// sampleRateHz is the actual AAC input sample rate (e.g. 44100 or 48000).
 //
 // ADTS header layout (7 bytes, no CRC):
 //
@@ -139,8 +135,8 @@ func (t *aacTranscoder) Close() {
 //	[1]  ID = 0 (MPEG-4)
 //	[2]  layer = 0
 //	[1]  protection_absent = 1 (no CRC)
-//	[2]  profile = 1 (AAC-LC, value = object_type - 1)
-//	[4]  sampling_frequency_index = 4 (44100 Hz)
+//	[2]  profile = 1 (AAC-LC, object_type - 1)
+//	[4]  sampling_frequency_index (dynamic — from sampleRateHz)
 //	[1]  private_bit = 0
 //	[3]  channel_configuration = 2 (stereo)
 //	[1]  originality/copy = 0
@@ -150,27 +146,40 @@ func (t *aacTranscoder) Close() {
 //	[13] aac_frame_length = 7 + len(frame)
 //	[11] adts_buffer_fullness = 0x7FF (VBR)
 //	[2]  number_of_raw_data_blocks_in_frame = 0 (1 block)
-func makeADTS(frame []byte) []byte {
+func makeADTS(frame []byte, sampleRateHz int) []byte {
+	// Find the sampling_frequency_index for the given sample rate.
+	sfIdx := byte(4) // default: 44100 Hz
+	for i, sr := range adtsSampFreqTable {
+		if sr == sampleRateHz {
+			sfIdx = byte(i)
+			break
+		}
+	}
+
+	const (
+		profile     = byte(1) // AAC-LC
+		channelConf = byte(2) // stereo
+	)
+
 	frameLen := uint32(7 + len(frame))
 	h := make([]byte, 7)
 
-	// Word 0-1: syncword(12) | ID(1) | layer(2) | protection_absent(1)
+	// Byte 0-1: syncword(12) | ID(1) | layer(2) | protection_absent(1)
 	h[0] = 0xFF
-	h[1] = 0xF1 // ID=0, layer=00, protection_absent=1
+	h[1] = 0xF1 // MPEG-4, layer=00, no CRC
 
 	// Byte 2: profile(2) | sampling_freq_idx(4) | private(1) | channel_conf MSB(1)
-	// profile-1=1 → bits 7:6 = 01; freq_idx=4 → bits 5:2 = 0100; private=0; chan MSB=1
-	h[2] = (adtsProfile << 6) | (adtsSampFreqIdx << 2) | (adtsPrivate << 1) | ((adtsChannelConf >> 2) & 1)
+	h[2] = (profile << 6) | (sfIdx << 2) | ((channelConf >> 2) & 1)
 
 	// Byte 3: channel_conf[1:0](2) | orig(1) | home(1) | copy_id(1) | copy_start(1) | frame_len[12:11](2)
-	h[3] = byte((adtsChannelConf&0x3)<<6) | byte((frameLen>>11)&0x3)
+	h[3] = (channelConf&0x3)<<6 | byte((frameLen>>11)&0x3)
 
-	// Bytes 4-5: frame_len[10:3](8) | frame_len[2:0](3 MSBs of byte5) | buffer_fullness[10:6](5)
+	// Bytes 4-5: frame_len[10:3](8) | frame_len[2:0](3) | buffer_fullness[10:6](5)
 	h[4] = byte(frameLen >> 3)
 	h[5] = byte((frameLen&0x7)<<5) | 0x1F // buffer_fullness upper 5 bits = 11111
 
 	// Byte 6: buffer_fullness[5:0](6) | num_blocks(2)
-	h[6] = 0xFC // lower 6 bits of 0x7FF = 111111, num_blocks=00
+	h[6] = 0xFC // 111111_00
 
 	return h
 }

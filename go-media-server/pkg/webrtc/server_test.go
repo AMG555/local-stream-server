@@ -82,14 +82,14 @@ func TestAvccToAnnexBZeroLengthNAL(t *testing.T) {
 
 func TestMakeADTSLength(t *testing.T) {
 	frame := make([]byte, 100)
-	hdr := makeADTS(frame)
+	hdr := makeADTS(frame, 44100)
 	if len(hdr) != 7 {
 		t.Errorf("makeADTS: header length = %d, want 7", len(hdr))
 	}
 }
 
 func TestMakeADTSSyncWord(t *testing.T) {
-	hdr := makeADTS([]byte{0x01, 0x02})
+	hdr := makeADTS([]byte{0x01, 0x02}, 44100)
 	// Bytes 0-1 must start with 0xFFF (12-bit syncword)
 	sync := (uint16(hdr[0])<<4 | uint16(hdr[1])>>4)
 	if sync != 0xFFF {
@@ -98,7 +98,7 @@ func TestMakeADTSSyncWord(t *testing.T) {
 }
 
 func TestMakeADTSProtectionAbsent(t *testing.T) {
-	hdr := makeADTS([]byte{0x01})
+	hdr := makeADTS([]byte{0x01}, 44100)
 	// Bit 0 of byte 1 = protection_absent = 1 (no CRC)
 	if hdr[1]&0x01 != 1 {
 		t.Errorf("makeADTS: protection_absent bit should be 1, got 0")
@@ -108,7 +108,7 @@ func TestMakeADTSProtectionAbsent(t *testing.T) {
 func TestMakeADTSFrameLength(t *testing.T) {
 	// Frame length field = 7 (header) + len(frame)
 	frame := make([]byte, 50)
-	hdr := makeADTS(frame)
+	hdr := makeADTS(frame, 44100)
 	expectedLen := uint32(7 + 50)
 	// Frame length spans bits 30–17 of the header (bytes 3-5, 13 bits)
 	frameLen := (uint32(hdr[3]&0x03) << 11) | (uint32(hdr[4]) << 3) | (uint32(hdr[5]) >> 5)
@@ -118,7 +118,7 @@ func TestMakeADTSFrameLength(t *testing.T) {
 }
 
 func TestMakeADTSProfile(t *testing.T) {
-	hdr := makeADTS([]byte{0x01})
+	hdr := makeADTS([]byte{0x01}, 44100)
 	// Profile (AAC-LC = 1) is bits 7:6 of byte 2
 	profile := (hdr[2] >> 6) & 0x3
 	if profile != 1 {
@@ -126,11 +126,59 @@ func TestMakeADTSProfile(t *testing.T) {
 	}
 }
 
-func TestMakeADTSSamplingFreqIdx(t *testing.T) {
-	hdr := makeADTS([]byte{0x01})
+func TestMakeADTSSamplingFreqIdx44100(t *testing.T) {
+	hdr := makeADTS([]byte{0x01}, 44100)
 	// Sampling frequency index = 4 (44100 Hz), bits 5:2 of byte 2
 	sfIdx := (hdr[2] >> 2) & 0xF
 	if sfIdx != 4 {
-		t.Errorf("makeADTS: sampling_freq_idx = %d, want 4 (44100 Hz)", sfIdx)
+		t.Errorf("makeADTS 44100: sampling_freq_idx = %d, want 4", sfIdx)
+	}
+}
+
+func TestMakeADTSSamplingFreqIdx48000(t *testing.T) {
+	hdr := makeADTS([]byte{0x01}, 48000)
+	// Sampling frequency index = 3 (48000 Hz), bits 5:2 of byte 2
+	sfIdx := (hdr[2] >> 2) & 0xF
+	if sfIdx != 3 {
+		t.Errorf("makeADTS 48000: sampling_freq_idx = %d, want 3", sfIdx)
+	}
+}
+
+func TestMakeADTSSamplingFreqIdxUnknown(t *testing.T) {
+	// Unknown rate (e.g. 12345) should fall back to index 4 (44100 Hz)
+	hdr := makeADTS([]byte{0x01}, 12345)
+	sfIdx := (hdr[2] >> 2) & 0xF
+	if sfIdx != 4 {
+		t.Errorf("makeADTS unknown rate: sampling_freq_idx = %d, want 4 (fallback)", sfIdx)
+	}
+}
+
+// ── parseASCSampleRate ────────────────────────────────────────────────────────
+
+func TestParseASCSampleRate44100(t *testing.T) {
+	// OBS default: AAC-LC (audioObjectType=2), 44100 Hz (sfIdx=4), stereo (ch=2)
+	// Bit layout: [5]audioObjType=00010 [4]sfIdx=0100 [4]channelConf=0010 ...
+	// = 0001 0010 0001 0000 = 0x12 0x10
+	asc := []byte{0x12, 0x10}
+	sr := parseASCSampleRate(asc)
+	if sr != 44100 {
+		t.Errorf("parseASCSampleRate 44100: got %d, want 44100", sr)
+	}
+}
+
+func TestParseASCSampleRate48000(t *testing.T) {
+	// AAC-LC, 48000 Hz (sfIdx=3), stereo
+	// = 0001 0001 1001 0000 = 0x11 0x90
+	asc := []byte{0x11, 0x90}
+	sr := parseASCSampleRate(asc)
+	if sr != 48000 {
+		t.Errorf("parseASCSampleRate 48000: got %d, want 48000", sr)
+	}
+}
+
+func TestParseASCSampleRateTooShort(t *testing.T) {
+	sr := parseASCSampleRate([]byte{0x12})
+	if sr != 0 {
+		t.Errorf("parseASCSampleRate too short: got %d, want 0", sr)
 	}
 }

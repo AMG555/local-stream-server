@@ -46,6 +46,16 @@ func (s *Server) HandleConnection(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("WebSocket client connected for stream %s", streamKey)
 
+	// If the stream is not yet registered in the manager, send a close frame
+	// with a human-readable reason so the browser flv.js can surface an error
+	// instead of silently disconnecting (close 1005 = no status in the log).
+	if !s.streamManager.IsLive(streamKey) {
+		log.Printf("WebSocket: stream %s not live — closing client gracefully", streamKey)
+		conn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "stream not live"))
+		return
+	}
+
 	// Register client
 	s.mu.Lock()
 	s.clients[streamKey] = append(s.clients[streamKey], conn)

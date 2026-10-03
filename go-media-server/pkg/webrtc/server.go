@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"net"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -17,8 +20,8 @@ import (
 )
 
 const (
-	h264PayloadType = 102 // dynamic PT for H.264
-	opusPayloadType = 111 // dynamic PT for Opus (same as Chrome default)
+	h264PayloadType = 102   // dynamic PT for H.264
+	opusPayloadType = 111   // dynamic PT for Opus (same as Chrome default)
 	h264ClockRate   = 90000
 	opusClockRateHz = 48000 // Opus always uses 48 kHz
 	rtpMTU          = 1200
@@ -29,29 +32,85 @@ type Server struct {
 	streamManager *stream.Manager
 	peers         sync.Map // peerID -> *peerSession
 	nextPeerID    atomic.Uint64
-	config        webrtc.Configuration
 	ffmpegPath    string
+	// nat1to1IPs is an optional list of public/NAT IPs injected into ICE candidates.
+	// Set via WEBRTC_NAT1TO1_IPS env var (comma-separated) so pion advertises
+	// the correct external address to remote browsers (e.g. on Tailscale/LAN).
+	nat1to1IPs []string
 }
 
 // peerSession holds a single viewer's WebRTC state.
 type peerSession struct {
 	pc         *webrtc.PeerConnection
 	streamKey  string
-	transcoder *aacTranscoder // AAC→Opus FFmpeg pipe (nil if FFmpeg unavailable)
+	transcoder *aacTranscoder // AAC→Opus FFmpeg pipe — nil until ICE connected
 	unsubAudio func()
 	unsubVideo func()
+	// audioQueue buffers raw AAC frames that arrive before ICE is connected.
+	audioQueueMu sync.Mutex
+	audioQueue   []aacQueueEntry
+	// audioSpecCfg holds the AudioSpecificConfig bytes from the sequence header.
+	audioSpecCfg []byte
+}
+
+// aacQueueEntry is one buffered raw AAC frame (no ADTS header, bare ES).
+type aacQueueEntry struct {
+	data []byte
 }
 
 func NewServer(mgr *stream.Manager) *Server {
-	return &Server{
+	s := &Server{
 		streamManager: mgr,
 		ffmpegPath:    detectFFmpegPath(),
-		config: webrtc.Configuration{
-			ICEServers: []webrtc.ICEServer{
-				{URLs: []string{"stun:stun.l.google.com:19302"}},
-			},
-		},
 	}
+	// Parse optional NAT1To1 IP list from environment.
+	// Example: WEBRTC_NAT1TO1_IPS=100.113.89.11,192.168.1.5
+	if envIPs := os.Getenv("WEBRTC_NAT1TO1_IPS"); envIPs != "" {
+		for _, ip := range splitCSV(envIPs) {
+			if net.ParseIP(ip) != nil {
+				s.nat1to1IPs = append(s.nat1to1IPs, ip)
+			} else {
+				log.Printf("WebRTC: ignoring invalid WEBRTC_NAT1TO1_IPS entry %q", ip)
+			}
+		}
+	}
+	if len(s.nat1to1IPs) > 0 {
+		log.Printf("WebRTC: NAT1To1 IPs configured: %v", s.nat1to1IPs)
+	} else {
+		// Auto-detect local IPs so ICE works on LAN even without explicit config.
+		s.nat1to1IPs = detectLocalIPs()
+		if len(s.nat1to1IPs) > 0 {
+			log.Printf("WebRTC: auto-detected local IPs for ICE: %v", s.nat1to1IPs)
+		}
+	}
+	return s
+}
+
+// buildAPI creates a pion API with a SettingEngine configured to expose all
+// local network interfaces as ICE host candidates, plus optional NAT1To1 IPs.
+// This fixes ICE failures when the browser is on Tailscale/LAN.
+func (s *Server) buildAPI(me *webrtc.MediaEngine) *webrtc.API {
+	se := webrtc.SettingEngine{}
+
+	// Enable mDNS — off by default, explicit control
+	// Allow all network types (UDP4, UDP6, TCP4, TCP6)
+	se.SetNetworkTypes([]webrtc.NetworkType{
+		webrtc.NetworkTypeUDP4,
+		webrtc.NetworkTypeUDP6,
+		webrtc.NetworkTypeTCP4,
+		webrtc.NetworkTypeTCP6,
+	})
+
+	// Inject NAT1To1 IPs so the SDP answer contains them as host candidates.
+	// This allows browsers on non-loopback addresses to reach the server.
+	if len(s.nat1to1IPs) > 0 {
+		se.SetNAT1To1IPs(s.nat1to1IPs, webrtc.ICECandidateTypeHost)
+	}
+
+	return webrtc.NewAPI(
+		webrtc.WithMediaEngine(me),
+		webrtc.WithSettingEngine(se),
+	)
 }
 
 // HandleOffer handles a WebRTC offer from a viewer and returns an SDP answer.
@@ -102,8 +161,13 @@ func (s *Server) HandleOffer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	api := webrtc.NewAPI(webrtc.WithMediaEngine(me))
-	pc, err := api.NewPeerConnection(s.config)
+	api := s.buildAPI(me)
+	config := webrtc.Configuration{
+		ICEServers: []webrtc.ICEServer{
+			{URLs: []string{"stun:stun.l.google.com:19302"}},
+		},
+	}
+	pc, err := api.NewPeerConnection(config)
 	if err != nil {
 		log.Printf("Failed to create peer connection: %v", err)
 		http.Error(w, "Internal error", http.StatusInternalServerError)
@@ -159,38 +223,68 @@ func (s *Server) HandleOffer(w http.ResponseWriter, r *http.Request) {
 
 	sess := &peerSession{pc: pc, streamKey: streamKey}
 
-	// Start the AAC→Opus transcoder (FFmpeg subprocess).
 	// opusTS tracks the RTP timestamp for outgoing Opus packets.
 	// Opus frames are 20 ms each at 48 kHz = 960 samples per frame.
 	const opusFrameSamples = uint32(960) // 20 ms @ 48 kHz
 	var opusTS uint32
 
-	transcoder, err := newAACTranscoder(s.ffmpegPath, func(opusPkt []byte) {
-		pkt := &rtp.Packet{
-			Header: rtp.Header{
-				Version:        2,
-				PayloadType:    opusPayloadType,
-				SequenceNumber: seqAudio,
-				Timestamp:      opusTS,
-				SSRC:           ssrcAudio,
-				Marker:         false,
-			},
-			Payload: opusPkt,
-		}
-		seqAudio++
-		opusTS += opusFrameSamples
-		if buf, err := pkt.Marshal(); err == nil {
-			if _, err := audioTrack.Write(buf); err != nil {
-				log.Printf("WebRTC audio write error for %s: %v", peerID, err)
+	// makeOpusSender builds the Opus RTP sender callback.
+	// Called once the transcoder is started (lazy, on ICE connected).
+	makeOpusSender := func() func([]byte) {
+		return func(opusPkt []byte) {
+			pkt := &rtp.Packet{
+				Header: rtp.Header{
+					Version:        2,
+					PayloadType:    opusPayloadType,
+					SequenceNumber: seqAudio,
+					Timestamp:      opusTS,
+					SSRC:           ssrcAudio,
+					Marker:         false,
+				},
+				Payload: opusPkt,
+			}
+			seqAudio++
+			opusTS += opusFrameSamples
+			if buf, err := pkt.Marshal(); err == nil {
+				if _, err := audioTrack.Write(buf); err != nil {
+					// Peer disconnected — normal; don't log each write error
+					_ = err
+				}
 			}
 		}
-	})
-	if err != nil {
-		log.Printf("WebRTC: AAC transcoder start failed (%v) — audio will be silent", err)
-		// Non-fatal: video still works
-	} else {
-		sess.transcoder = transcoder
-		log.Printf("WebRTC: AAC→Opus transcoder started for %s", peerID)
+	}
+
+	// startTranscoder initialises the FFmpeg AAC→Opus pipe and flushes any
+	// queued frames that arrived before ICE was established.
+	startTranscoder := func() {
+		sess.audioQueueMu.Lock()
+		defer sess.audioQueueMu.Unlock()
+
+		if sess.transcoder != nil {
+			return // already started
+		}
+
+		// Determine sample rate from AudioSpecificConfig if available.
+		sampleRateHz := 44100 // safe default
+		if len(sess.audioSpecCfg) >= 2 {
+			if sr := parseASCSampleRate(sess.audioSpecCfg); sr > 0 {
+				sampleRateHz = sr
+			}
+		}
+
+		t, err := newAACTranscoder(s.ffmpegPath, sampleRateHz, makeOpusSender())
+		if err != nil {
+			log.Printf("WebRTC: AAC transcoder start failed (%v) — audio will be silent", err)
+			return
+		}
+		sess.transcoder = t
+		log.Printf("WebRTC: AAC→Opus transcoder started for %s (sampleRate=%d)", peerID, sampleRateHz)
+
+		// Flush buffered frames
+		for _, entry := range sess.audioQueue {
+			t.WriteAAC(entry.data)
+		}
+		sess.audioQueue = nil
 	}
 
 	sess.unsubVideo = s.streamManager.SubscribeVideo(streamKey, func(frame stream.MediaFrame) {
@@ -222,7 +316,6 @@ func (s *Server) HandleOffer(w http.ResponseWriter, r *http.Request) {
 		for _, pkt := range pkts {
 			if buf, err := pkt.Marshal(); err == nil {
 				if _, err := videoTrack.Write(buf); err != nil {
-					log.Printf("WebRTC video write error for %s: %v", peerID, err)
 					return
 				}
 			}
@@ -238,15 +331,45 @@ func (s *Server) HandleOffer(w http.ResponseWriter, r *http.Request) {
 		if len(data) < 2 {
 			return
 		}
+
+		if data[1] == 0 {
+			// AudioSpecificConfig sequence header — extract and save it.
+			// This tells us the real sample rate and channel count.
+			if len(data) > 2 {
+				cfg := make([]byte, len(data)-2)
+				copy(cfg, data[2:])
+				sess.audioQueueMu.Lock()
+				sess.audioSpecCfg = cfg
+				sess.audioQueueMu.Unlock()
+			}
+			return
+		}
+
 		if data[1] != 1 {
-			// Skip AudioSpecificConfig (sequence header)
-			return
+			return // unknown AACPacketType
 		}
+
 		aacFrame := data[2:]
-		if len(aacFrame) == 0 || sess.transcoder == nil {
+		if len(aacFrame) == 0 {
 			return
 		}
-		sess.transcoder.WriteAAC(aacFrame)
+
+		sess.audioQueueMu.Lock()
+		if sess.transcoder == nil {
+			// Buffer frames that arrive before ICE is connected.
+			// Cap the queue at 50 frames (~1 sec) to avoid unbounded growth.
+			if len(sess.audioQueue) < 50 {
+				entry := aacQueueEntry{data: make([]byte, len(aacFrame))}
+				copy(entry.data, aacFrame)
+				sess.audioQueue = append(sess.audioQueue, entry)
+			}
+			sess.audioQueueMu.Unlock()
+			return
+		}
+		t := sess.transcoder
+		sess.audioQueueMu.Unlock()
+
+		t.WriteAAC(aacFrame)
 	})
 
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
@@ -254,6 +377,8 @@ func (s *Server) HandleOffer(w http.ResponseWriter, r *http.Request) {
 		switch state {
 		case webrtc.PeerConnectionStateConnected:
 			s.streamManager.AddClient(streamKey)
+			// Start transcoder now that we have a live ICE path.
+			startTranscoder()
 		case webrtc.PeerConnectionStateDisconnected,
 			webrtc.PeerConnectionStateFailed,
 			webrtc.PeerConnectionStateClosed:
@@ -294,7 +419,7 @@ func (s *Server) HandleOffer(w http.ResponseWriter, r *http.Request) {
 		"peerId": peerID,
 	})
 
-	log.Printf("WebRTC answer sent for %s (Opus audio: %v)", peerID, sess.transcoder != nil)
+	log.Printf("WebRTC answer sent for %s (nat1to1=%v)", peerID, s.nat1to1IPs)
 }
 
 // HandleICECandidate processes a trickle-ICE candidate from a viewer.
@@ -346,8 +471,13 @@ func (s *Server) cleanupPeer(peerID string) {
 		if sess.unsubVideo != nil {
 			sess.unsubVideo()
 		}
-		if sess.transcoder != nil {
-			sess.transcoder.Close()
+		sess.audioQueueMu.Lock()
+		t := sess.transcoder
+		sess.transcoder = nil
+		sess.audioQueue = nil
+		sess.audioQueueMu.Unlock()
+		if t != nil {
+			t.Close()
 		}
 		sess.pc.Close()
 	}
@@ -368,4 +498,85 @@ func avccToAnnexB(avcc []byte) []byte {
 		avcc = avcc[nalLen:]
 	}
 	return annexB
+}
+
+// detectLocalIPs returns non-loopback unicast IPv4 addresses for this machine.
+// Used as a fallback when WEBRTC_NAT1TO1_IPS is not set, so ICE candidates
+// include LAN/Tailscale addresses.
+func detectLocalIPs() []string {
+	var ips []string
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ips
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+				continue
+			}
+			if ip4 := ip.To4(); ip4 != nil {
+				ips = append(ips, ip4.String())
+			}
+		}
+	}
+	return ips
+}
+
+// splitCSV splits a comma-separated string and trims spaces.
+func splitCSV(s string) []string {
+	var out []string
+	start := 0
+	for i := 0; i <= len(s); i++ {
+		if i == len(s) || s[i] == ',' {
+			part := strings.TrimSpace(s[start:i])
+			if part != "" {
+				out = append(out, part)
+			}
+			start = i + 1
+		}
+	}
+	return out
+}
+
+// parseASCSampleRate extracts the sample rate from an MPEG-4 AudioSpecificConfig.
+//
+// AudioSpecificConfig bit layout (ISO 14496-3):
+//
+//	[5]  audioObjectType (if == 31: add 6 bits for audioObjectTypeExt)
+//	[4]  samplingFrequencyIndex (if == 0xF: add 24-bit explicit frequency)
+//	[4]  channelConfiguration
+//
+// https://wiki.multimedia.cx/index.php/MPEG-4_Audio#Audio_Specific_Config
+func parseASCSampleRate(asc []byte) int {
+	if len(asc) < 2 {
+		return 0
+	}
+	// Read as a 16-bit big-endian word
+	word := uint16(asc[0])<<8 | uint16(asc[1])
+
+	// bits [15:11] = audioObjectType (5 bits) — skip it
+	// bits [10:7]  = samplingFrequencyIndex (4 bits)
+	sfIdx := (word >> 7) & 0xF
+
+	// If sfIdx == 0xF the actual frequency is in the next 24 bits — too rare to
+	// handle here; fall back to 44100 in that case.
+	sampleRates := []int{96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350}
+	if int(sfIdx) < len(sampleRates) {
+		return sampleRates[sfIdx]
+	}
+	return 0
 }
