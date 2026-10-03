@@ -343,8 +343,10 @@ ffplay rtmp://YOUR_IP:1935/live/YOUR_STREAM_KEY
 ### Server Ports
 
 - **HTTP Server**: 8000 (Web Interface)
-- **RTMP Server**: 1935 (Stream Ingest)
-- **Media Server**: 8080 (HLS Playback)
+- **RTMP Server**: 1935 (Stream Ingest — Node.js)
+- **Media Server**: 8081 (HLS Playback — Node.js)
+- **SRT Server**: 8554 (Ultra-low latency ingest — Go)
+- **Go API**: 8084 (WebSocket/WebRTC/streams — Go)
 
 ### Customize Ports
 
@@ -489,7 +491,10 @@ New-NetFirewallRule -DisplayName "Stream Server RTMP" -Direction Inbound -LocalP
 New-NetFirewallRule -DisplayName "Stream Server HTTP" -Direction Inbound -LocalPort 8000 -Protocol TCP -Action Allow
 
 # Allow Media port
-New-NetFirewallRule -DisplayName "Stream Server Media" -Direction Inbound -LocalPort 8080 -Protocol TCP -Action Allow
+New-NetFirewallRule -DisplayName "Stream Server Media" -Direction Inbound -LocalPort 8081 -Protocol TCP -Action Allow
+
+# Allow SRT port (UDP — Go media server)
+New-NetFirewallRule -DisplayName "Stream Server SRT" -Direction Inbound -LocalPort 8554 -Protocol UDP -Action Allow
 ```
 
 **Mac Firewall:**
@@ -501,18 +506,21 @@ New-NetFirewallRule -DisplayName "Stream Server Media" -Direction Inbound -Local
 ```bash
 sudo ufw allow 1935/tcp
 sudo ufw allow 8000/tcp
-sudo ufw allow 8080/tcp
+sudo ufw allow 8081/tcp
+sudo ufw allow 8554/udp  # SRT
 ```
 
 ### 📋 Quick Setup Checklist for New Devices
 
 - [ ] Node.js installed (v14+)
-- [ ] FFmpeg installed and in PATH
+- [ ] FFmpeg installed and in PATH (for HLS recording)
+- [ ] Go installed (v1.21+) and binary built: `npm run go:build`
 - [ ] Project files copied to device
 - [ ] `npm install` completed successfully
-- [ ] Server started with `npm start`
+- [ ] Node.js server started: `npm start`
+- [ ] Go media server started: `npm run go:run`
 - [ ] Server IP address noted
-- [ ] Firewall ports opened (1935, 8000, 8080)
+- [ ] Firewall ports opened (1935 TCP, 8000 TCP, 8081 TCP, 8554 UDP)
 - [ ] All devices on same WiFi network
 - [ ] Web interface accessible from browser
 
@@ -619,7 +627,7 @@ sudo systemctl start stream-server
 
 ### Stream Not Connecting
 
-1. **Check Firewall**: Allow ports 1935, 8000, and 8080
+1. **Check Firewall**: Allow ports 1935, 8000, 8081 (TCP) and 8554 (UDP for SRT)
 2. **Verify Stream Key**: Ensure it exists in the web interface
 3. **Check FFmpeg**: Ensure FFmpeg is installed and in PATH
 
@@ -818,20 +826,27 @@ All endpoints require `Authorization: Bearer <api-key>` except `/api/info` and `
 local-stream-server/
 ├── server.js              # Express + RTMP + all API endpoints
 ├── auth.js                # API key middleware, generate, revoke, list
+├── helpers.js             # Pure utils: isValidUUID, sanitizeTitle, safeArgs, redactStreamKey
 ├── package.json
+├── vitest.config.mjs      # Vitest configuration
 ├── public/
-│   ├── index.html         # Dashboard UI
+│   ├── index.html         # Dashboard UI (RTMP/SRT protocol selector, multi-mode player)
 │   ├── styles.css
 │   └── app.js             # Frontend: HLS/WS/WebRTC player, recordings, API keys
-├── go-media-server/       # Go binary — WebSocket + WebRTC + low-latency RTMP
+├── tests/                 # Node.js test suite (vitest + supertest)
+│   ├── helpers.test.js    # 27 unit tests for helper functions
+│   ├── auth.test.js       # 16 unit tests for auth module
+│   └── api.test.js        # 24 API integration tests
+├── go-media-server/       # Go media server — SRT + WebSocket + WebRTC + RTMP
 │   ├── main.go
-│   ├── config.yml
+│   ├── config.yml         # RTMP:1935, SRT:8554, API:8084
 │   └── pkg/
-│       ├── rtmp/          # yutopp/go-rtmp handler
-│       ├── stream/        # Thread-safe fan-out manager
-│       ├── websocket/     # gorilla/websocket server
-│       ├── webrtc/        # pion/webrtc SDP + ICE
-│       ├── api/           # REST + CORS middleware
+│       ├── rtmp/          # yutopp/go-rtmp handler + tests
+│       ├── srt/           # datarhei/gosrt — real SRT with MPEG-TS demux + tests
+│       ├── stream/        # Thread-safe fan-out manager + tests + benchmarks
+│       ├── websocket/     # gorilla/websocket FLV muxer + tests
+│       ├── webrtc/        # pion/webrtc H.264 FU-A + AAC-LATM + tests
+│       ├── api/           # REST + CORS middleware + tests
 │       └── config/
 ├── recordings/            # MP4 recordings (gitignored)
 ├── media/                 # HLS segments (gitignored)
@@ -844,10 +859,11 @@ local-stream-server/
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Some good first areas:
 
-- **SRT protocol** — the Go server has a UDP listener skeleton; implementing the SRT handshake would complete the 4th protocol
 - **Multi-bitrate HLS** — add ABR ladder (1080p/720p/480p) via FFmpeg `-map` outputs
-- **Chat overlay** — Socket.IO room per stream key
+- **WHIP ingest** — WebRTC-HTTP Ingestion Protocol (publish from browser, no OBS needed)
+- **Stream thumbnails** — FFmpeg periodic JPEG snapshots for stream card previews
 - **Docker** — `Dockerfile` + `docker-compose.yml` for single-command startup
+- **Chat overlay** — Socket.IO room per stream key
 
 ## 📄 License
 
@@ -866,8 +882,10 @@ Built with:
 
 **Go stack:**
 - [yutopp/go-rtmp](https://github.com/yutopp/go-rtmp) — pure-Go RTMP server library
+- [datarhei/gosrt](https://github.com/datarhei/gosrt) — pure-Go SRT (v0.12.0, Windows-compatible)
 - [pion/webrtc](https://github.com/pion/webrtc) — WebRTC peer connection + ICE
-- [gorilla/websocket](https://github.com/gorilla/websocket) — WebSocket server
+- [pion/rtp](https://github.com/pion/rtp) — H.264 FU-A packetization + AAC-LATM wrapping
+- [gorilla/websocket](https://github.com/gorilla/websocket) — WebSocket + FLV muxer
 
 ## 💬 Support
 

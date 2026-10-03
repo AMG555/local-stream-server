@@ -5,6 +5,38 @@ All notable changes to Local Stream Server will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - RTMP/SRT UI selector + full test suite
+
+### ✨ Added
+
+- **RTMP / SRT protocol selector** in Stream Details modal
+  - Two tabs: RTMP (OBS/vMix/Wirecast) and SRT (~120ms ultra-low latency)
+  - RTMP tab: server URL, stream key, HLS playback URL, OBS instructions
+  - SRT tab: pre-filled `srt://IP:8554?streamid=key=X&latency=120000` one-click copy, stream key, WebSocket playback URL, OBS SRT setup steps, FFmpeg command auto-populated with real IP + key
+  - `switchIngestProtocol()` JS function — panel visibility toggle
+- **Full automated test suite** — 111 tests, 100% pass, 0 failures
+  - Node.js (vitest + supertest): 67 tests — helpers, auth, API integration
+  - Go: 44 tests — stream manager, RTMP/SRT key extraction, FLV format, AVCC→AnnexB, AAC→LATM, HTTP API
+  - Broadcast latency benchmarks: 33ns (1 viewer), 137ns (10 viewers), 708ns (100 viewers)
+  - `TestBroadcastLatencyUnder1ms` structural gate: avg=562ns for 10 subscribers
+- **`helpers.js`** — extracted `isValidUUID`, `sanitizeTitle`, `redactStreamKey`, `safeArgs` from `server.js` for testability
+- **`makeFLVHeader()`** extracted in websocket server for testability (no behaviour change)
+- `/api/info` now returns `srtPort` (8554) and `srtUrl` (`srt://IP:8554`)
+- Sidebar and Server Info modal now show SRT port
+- `npm` scripts: `test`, `test:watch`, `test:go`, `test:go:bench`, `test:all`
+
+### 🔧 Fixed
+
+- **RTMP args log leakage** — `safeArgs()` strips `tcUrl`/`swfUrl`/`pageUrl` from all RTMP event logs; OBS embeds stream keys in these fields
+- **Redundant RTP sequence override** — removed manual `seqVideo` counter that was fighting `rtp.NewPacketizer`'s own `RandomSequencer` for video packets (audio path unaffected — it uses a raw `rtp.Packet`)
+
+### 🧹 Chores
+
+- Deleted `bin/mediamtx.zip` (old unused binary, was gitignored but present)
+- Removed hard-coded personal path from `cloudflare-tunnel-config.yml`; fixed stale port 8080→8081; replaced placeholder hostname
+- `auth.js`: removed `validateAPIKey` from `module.exports` (internal-only function)
+- `.gitignore`: removed duplicate bare `node_modules` entry
+
 ## [1.4.0] - Real WebRTC video/audio + real FLV timestamps
 
 ### ✨ Fixed — WebRTC now decodes video and audio in the browser
