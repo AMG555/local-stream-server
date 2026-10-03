@@ -1,6 +1,6 @@
 {
   "name": "local-stream-server",
-  "version": "1.5.2",
+  "version": "1.6.0",
   "description": "Enterprise-grade self-hosted streaming server: RTMP ingest, HLS/WebSocket/WebRTC playback, API key auth, recording, real-time stats. Test OBS, vMix, Wirecast locally.",
   "main": "server.js",
   "scripts": {

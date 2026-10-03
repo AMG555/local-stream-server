@@ -5,6 +5,46 @@ All notable changes to Local Stream Server will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - WebRTC ICE fix + audio transcoder hardening
+
+### 🔧 Fixed
+
+- **WebRTC ICE failure** (`state: connecting → failed`) — pion `SettingEngine` now binds all
+  network types (UDP4/UDP6/TCP4/TCP6) and calls `SetNAT1To1IPs()` with auto-detected local IPs
+  at startup. Set `WEBRTC_NAT1TO1_IPS=<ip>` env var to override (e.g. Tailscale IP).
+  Browsers on LAN/Tailscale now negotiate ICE successfully.
+
+- **FFmpeg `Error opening input: End of file`** — transcoder now starts *lazily* on
+  `PeerConnectionStateConnected` instead of on offer arrival. AAC frames that arrive before ICE
+  connects are buffered (up to 50 frames ≈ 1 sec) and flushed immediately when the transcoder
+  starts. Eliminates the EOF spam from FFmpeg getting no data when ICE failed.
+
+- **ADTS hardcoded 44100 Hz** — `AudioSpecificConfig` sequence header is now parsed to detect
+  the real AAC sample rate (44100 or 48000 from OBS). ADTS headers now carry the correct
+  `sampling_frequency_index`, fixing audio corruption when OBS encodes at 48 kHz.
+
+- **ADTS+frame partial write** — ADTS header and AAC payload are now written as a single
+  `Write()` call, preventing FFmpeg from seeing a split packet on the stdin pipe.
+
+- **WebSocket close 1005 (no status)** — server now sends close code 1008 with reason
+  `"stream not live"` when a client connects before the stream is registered, replacing the
+  silent no-status close that polluted logs.
+
+- **WebRTC latency badge always ~20ms** — replaced `jitter * 1000 + 20` (wrong unit — jitter
+  is in seconds) with `jitterBufferDelay / jitterBufferEmittedCount` delta (W3C spec), which
+  measures the actual decoded-frame buffer delay per interval.
+
+### ✨ Added
+
+- `detectLocalIPs()` — auto-detects non-loopback IPv4 addresses at Go server startup and injects
+  them as ICE host candidates. No config change needed for LAN access.
+- `parseASCSampleRate()` — extracts the MPEG-4 AudioSpecificConfig sample rate from the RTMP
+  audio sequence header. Supports all standard MPEG-4 sample rates (96kHz down to 7350 Hz).
+- 3 new Go tests: `makeADTS` with 48000 Hz, unknown rate fallback, `parseASCSampleRate` for
+  44100/48000/too-short input. Total: 46 Go tests, 67 Node tests, all passing.
+
+---
+
 ## [1.5.2] - Latency fixes + startup key display
 
 ### 🔧 Fixed
