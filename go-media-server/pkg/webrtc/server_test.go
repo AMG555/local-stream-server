@@ -6,12 +6,9 @@ import (
 	"testing"
 )
 
-// avccToAnnexB and wrapAACinLATM are unexported — tested in the same package.
-
 // ── avccToAnnexB ─────────────────────────────────────────────────────────────
 
 func TestAvccToAnnexBSingleNAL(t *testing.T) {
-	// AVCC: [0x00 0x00 0x00 0x03][0x65 0x88 0x84]
 	nalData := []byte{0x65, 0x88, 0x84}
 	avcc := make([]byte, 4+len(nalData))
 	binary.BigEndian.PutUint32(avcc[:4], uint32(len(nalData)))
@@ -59,7 +56,6 @@ func TestAvccToAnnexBEmpty(t *testing.T) {
 }
 
 func TestAvccToAnnexBTooShort(t *testing.T) {
-	// Only 3 bytes — less than the 4-byte length prefix
 	result := avccToAnnexB([]byte{0x00, 0x00, 0x05})
 	if len(result) != 0 {
 		t.Errorf("avccToAnnexB too-short: expected empty, got %v", result)
@@ -67,17 +63,14 @@ func TestAvccToAnnexBTooShort(t *testing.T) {
 }
 
 func TestAvccToAnnexBTruncatedNAL(t *testing.T) {
-	// Claims NAL of 10 bytes but only 3 bytes follow
 	avcc := []byte{0x00, 0x00, 0x00, 0x0A, 0x65, 0x88, 0x84}
 	result := avccToAnnexB(avcc)
-	// Should not crash; should return empty (length exceeds available data)
 	if len(result) != 0 {
 		t.Errorf("avccToAnnexB truncated NAL: expected empty, got %v", result)
 	}
 }
 
 func TestAvccToAnnexBZeroLengthNAL(t *testing.T) {
-	// Zero-length NAL should be skipped (nalLen <= 0)
 	avcc := []byte{0x00, 0x00, 0x00, 0x00, 0x65, 0x88}
 	result := avccToAnnexB(avcc)
 	if len(result) != 0 {
@@ -85,66 +78,59 @@ func TestAvccToAnnexBZeroLengthNAL(t *testing.T) {
 	}
 }
 
-// ── wrapAACinLATM ─────────────────────────────────────────────────────────────
+// ── makeADTS ─────────────────────────────────────────────────────────────────
 
-func TestWrapAACinLATMStructure(t *testing.T) {
-	aac := []byte{0x11, 0x90, 0x00, 0xCA, 0xFF}
-	result := wrapAACinLATM(aac)
-
-	// Total length = 4 header bytes + len(aac)
-	if len(result) != 4+len(aac) {
-		t.Errorf("wrapAACinLATM length: got %d, want %d", len(result), 4+len(aac))
-	}
-
-	// AU-Header-Length field = 16 (2 bytes)
-	auHeaderLen := binary.BigEndian.Uint16(result[0:2])
-	if auHeaderLen != 16 {
-		t.Errorf("AU-Header-Length: got %d, want 16", auHeaderLen)
-	}
-
-	// AU-Header: size (13 bits) << 3 | index (3 bits = 0)
-	auHeader := binary.BigEndian.Uint16(result[2:4])
-	frameSize := uint16(len(aac))
-	expectedAUHeader := (frameSize << 3) & 0xFFF8
-	if auHeader != expectedAUHeader {
-		t.Errorf("AU-Header: got 0x%04x, want 0x%04x", auHeader, expectedAUHeader)
-	}
-
-	// Payload bytes preserved
-	if !bytes.Equal(result[4:], aac) {
-		t.Errorf("wrapAACinLATM payload mismatch")
+func TestMakeADTSLength(t *testing.T) {
+	frame := make([]byte, 100)
+	hdr := makeADTS(frame)
+	if len(hdr) != 7 {
+		t.Errorf("makeADTS: header length = %d, want 7", len(hdr))
 	}
 }
 
-func TestWrapAACinLATMEmpty(t *testing.T) {
-	result := wrapAACinLATM([]byte{})
-	if len(result) != 4 {
-		t.Errorf("wrapAACinLATM empty: got %d bytes, want 4", len(result))
-	}
-	// AU-Header frameSize = 0 → header field = 0
-	auHeader := binary.BigEndian.Uint16(result[2:4])
-	if auHeader != 0 {
-		t.Errorf("wrapAACinLATM empty frame: AU-Header should be 0, got %d", auHeader)
+func TestMakeADTSSyncWord(t *testing.T) {
+	hdr := makeADTS([]byte{0x01, 0x02})
+	// Bytes 0-1 must start with 0xFFF (12-bit syncword)
+	sync := (uint16(hdr[0])<<4 | uint16(hdr[1])>>4)
+	if sync != 0xFFF {
+		t.Errorf("makeADTS: syncword = 0x%03X, want 0xFFF", sync)
 	}
 }
 
-func TestWrapAACinLATMLargeFrame(t *testing.T) {
-	// 256-byte AAC frame — size field must fit in 13 bits (max 8191)
-	aac := make([]byte, 256)
-	for i := range aac {
-		aac[i] = byte(i)
+func TestMakeADTSProtectionAbsent(t *testing.T) {
+	hdr := makeADTS([]byte{0x01})
+	// Bit 0 of byte 1 = protection_absent = 1 (no CRC)
+	if hdr[1]&0x01 != 1 {
+		t.Errorf("makeADTS: protection_absent bit should be 1, got 0")
 	}
-	result := wrapAACinLATM(aac)
+}
 
-	// Verify payload intact
-	if !bytes.Equal(result[4:], aac) {
-		t.Error("wrapAACinLATM large frame: payload corrupted")
+func TestMakeADTSFrameLength(t *testing.T) {
+	// Frame length field = 7 (header) + len(frame)
+	frame := make([]byte, 50)
+	hdr := makeADTS(frame)
+	expectedLen := uint32(7 + 50)
+	// Frame length spans bits 30–17 of the header (bytes 3-5, 13 bits)
+	frameLen := (uint32(hdr[3]&0x03) << 11) | (uint32(hdr[4]) << 3) | (uint32(hdr[5]) >> 5)
+	if frameLen != expectedLen {
+		t.Errorf("makeADTS frame length: got %d, want %d", frameLen, expectedLen)
 	}
+}
 
-	auHeader := binary.BigEndian.Uint16(result[2:4])
-	frameSize := uint16(len(aac))
-	expectedAUHeader := (frameSize << 3) & 0xFFF8
-	if auHeader != expectedAUHeader {
-		t.Errorf("wrapAACinLATM large frame AU-Header: got 0x%04x, want 0x%04x", auHeader, expectedAUHeader)
+func TestMakeADTSProfile(t *testing.T) {
+	hdr := makeADTS([]byte{0x01})
+	// Profile (AAC-LC = 1) is bits 7:6 of byte 2
+	profile := (hdr[2] >> 6) & 0x3
+	if profile != 1 {
+		t.Errorf("makeADTS: profile = %d, want 1 (AAC-LC)", profile)
+	}
+}
+
+func TestMakeADTSSamplingFreqIdx(t *testing.T) {
+	hdr := makeADTS([]byte{0x01})
+	// Sampling frequency index = 4 (44100 Hz), bits 5:2 of byte 2
+	sfIdx := (hdr[2] >> 2) & 0xF
+	if sfIdx != 4 {
+		t.Errorf("makeADTS: sampling_freq_idx = %d, want 4 (44100 Hz)", sfIdx)
 	}
 }

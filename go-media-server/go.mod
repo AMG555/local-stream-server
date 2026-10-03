@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/datarhei/gosrt v0.12.0
 	github.com/gorilla/websocket v1.5.3
+	github.com/pion/rtp v1.8.5
 	github.com/pion/webrtc/v3 v3.2.40
 	github.com/yutopp/go-rtmp v0.0.5
 	gopkg.in/yaml.v3 v3.0.1
@@ -24,7 +25,6 @@ require (
 	github.com/pion/mdns v0.0.12 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/rtcp v1.2.12 // indirect
-	github.com/pion/rtp v1.8.5 // indirect
 	github.com/pion/sctp v1.8.16 // indirect
 	github.com/pion/sdp/v3 v3.0.9 // indirect
 	github.com/pion/srtp/v2 v2.0.18 // indirect

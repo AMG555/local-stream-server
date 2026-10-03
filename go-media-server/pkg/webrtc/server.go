@@ -18,9 +18,9 @@ import (
 
 const (
 	h264PayloadType = 102 // dynamic PT for H.264
-	aacPayloadType  = 96  // dynamic PT for AAC-LATM (MP4A-LATM)
+	opusPayloadType = 111 // dynamic PT for Opus (same as Chrome default)
 	h264ClockRate   = 90000
-	aacClockRate    = 44100
+	opusClockRateHz = 48000 // Opus always uses 48 kHz
 	rtpMTU          = 1200
 )
 
@@ -30,12 +30,14 @@ type Server struct {
 	peers         sync.Map // peerID -> *peerSession
 	nextPeerID    atomic.Uint64
 	config        webrtc.Configuration
+	ffmpegPath    string
 }
 
 // peerSession holds a single viewer's WebRTC state.
 type peerSession struct {
 	pc         *webrtc.PeerConnection
 	streamKey  string
+	transcoder *aacTranscoder // AAC→Opus FFmpeg pipe (nil if FFmpeg unavailable)
 	unsubAudio func()
 	unsubVideo func()
 }
@@ -43,6 +45,7 @@ type peerSession struct {
 func NewServer(mgr *stream.Manager) *Server {
 	return &Server{
 		streamManager: mgr,
+		ffmpegPath:    detectFFmpegPath(),
 		config: webrtc.Configuration{
 			ICEServers: []webrtc.ICEServer{
 				{URLs: []string{"stun:stun.l.google.com:19302"}},
@@ -72,7 +75,7 @@ func (s *Server) HandleOffer(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("WebRTC offer for stream %s", streamKey)
 
-	// Build a MediaEngine that advertises H.264 (PT 102) and AAC-LATM (PT 96).
+	// Build a MediaEngine that advertises H.264 (PT 102) and Opus (PT 111).
 	me := &webrtc.MediaEngine{}
 	if err := me.RegisterCodec(webrtc.RTPCodecParameters{
 		RTPCodecCapability: webrtc.RTPCodecCapability{
@@ -88,13 +91,13 @@ func (s *Server) HandleOffer(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := me.RegisterCodec(webrtc.RTPCodecParameters{
 		RTPCodecCapability: webrtc.RTPCodecCapability{
-			MimeType:  "audio/MP4A-LATM",
-			ClockRate: aacClockRate,
+			MimeType:  webrtc.MimeTypeOpus,
+			ClockRate: opusClockRateHz,
 			Channels:  2,
 		},
-		PayloadType: aacPayloadType,
+		PayloadType: opusPayloadType,
 	}, webrtc.RTPCodecTypeAudio); err != nil {
-		log.Printf("RegisterCodec AAC error: %v", err)
+		log.Printf("RegisterCodec Opus error: %v", err)
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
 	}
@@ -125,7 +128,7 @@ func (s *Server) HandleOffer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	audioTrack, err := webrtc.NewTrackLocalStaticRTP(
-		webrtc.RTPCodecCapability{MimeType: "audio/MP4A-LATM", ClockRate: aacClockRate},
+		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: opusClockRateHz},
 		"audio", "stream",
 	)
 	if err != nil {
@@ -156,6 +159,40 @@ func (s *Server) HandleOffer(w http.ResponseWriter, r *http.Request) {
 
 	sess := &peerSession{pc: pc, streamKey: streamKey}
 
+	// Start the AAC→Opus transcoder (FFmpeg subprocess).
+	// opusTS tracks the RTP timestamp for outgoing Opus packets.
+	// Opus frames are 20 ms each at 48 kHz = 960 samples per frame.
+	const opusFrameSamples = uint32(960) // 20 ms @ 48 kHz
+	var opusTS uint32
+
+	transcoder, err := newAACTranscoder(s.ffmpegPath, func(opusPkt []byte) {
+		pkt := &rtp.Packet{
+			Header: rtp.Header{
+				Version:        2,
+				PayloadType:    opusPayloadType,
+				SequenceNumber: seqAudio,
+				Timestamp:      opusTS,
+				SSRC:           ssrcAudio,
+				Marker:         false,
+			},
+			Payload: opusPkt,
+		}
+		seqAudio++
+		opusTS += opusFrameSamples
+		if buf, err := pkt.Marshal(); err == nil {
+			if _, err := audioTrack.Write(buf); err != nil {
+				log.Printf("WebRTC audio write error for %s: %v", peerID, err)
+			}
+		}
+	})
+	if err != nil {
+		log.Printf("WebRTC: AAC transcoder start failed (%v) — audio will be silent", err)
+		// Non-fatal: video still works
+	} else {
+		sess.transcoder = transcoder
+		log.Printf("WebRTC: AAC→Opus transcoder started for %s", peerID)
+	}
+
 	sess.unsubVideo = s.streamManager.SubscribeVideo(streamKey, func(frame stream.MediaFrame) {
 		// RTMP video tag layout (from FLV spec):
 		//   byte 0: codec+frame_type (0x17 = H.264 keyframe, 0x27 = inter)
@@ -173,7 +210,6 @@ func (s *Server) HandleOffer(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Convert AVCC (length-prefixed) to Annex B (start-code prefixed)
-		// which is what pion's H264Payloader expects.
 		annexB := avccToAnnexB(data[5:])
 		if len(annexB) == 0 {
 			return
@@ -195,49 +231,22 @@ func (s *Server) HandleOffer(w http.ResponseWriter, r *http.Request) {
 
 	sess.unsubAudio = s.streamManager.SubscribeAudio(streamKey, func(frame stream.MediaFrame) {
 		// RTMP audio tag layout (FLV spec):
-		//   byte 0: codec+samplerate+size+channels (0xAF = AAC, 44kHz, 16bit, stereo)
+		//   byte 0: codec+samplerate+size+channels
 		//   byte 1: AACPacketType (0=AudioSpecificConfig, 1=AAC raw frame)
-		//   bytes 2+: AAC raw frame (ADTS or raw depending on AACPacketType)
+		//   bytes 2+: raw AAC frame
 		data := frame.Data
 		if len(data) < 2 {
 			return
 		}
-		aacPacketType := data[1]
-		if aacPacketType != 1 {
+		if data[1] != 1 {
 			// Skip AudioSpecificConfig (sequence header)
 			return
 		}
-		// Raw AAC frame starts at byte 2
 		aacFrame := data[2:]
-		if len(aacFrame) == 0 {
+		if len(aacFrame) == 0 || sess.transcoder == nil {
 			return
 		}
-
-		// Wrap AAC in LATM: 3-byte LATM AudioMuxElement header + payload
-		// StreamMuxConfig is embedded inline (useSameStreamMux=0 not needed for single frame).
-		// For simplicity we use the "2-byte header" AU-Header-Length form per RFC 6416:
-		//   [2-byte AU-Header-Section length=16][2-byte AU-header (size+index)][payload]
-		latm := wrapAACinLATM(aacFrame)
-
-		// Convert RTMP timestamp to 44100 Hz clock
-		rtpTS := uint32(frame.Timestamp) * (aacClockRate / 1000)
-
-		pkt := &rtp.Packet{
-			Header: rtp.Header{
-				Version:        2,
-				PayloadType:    aacPayloadType,
-				SequenceNumber: seqAudio,
-				Timestamp:      rtpTS,
-				SSRC:           ssrcAudio,
-			},
-			Payload: latm,
-		}
-		seqAudio++
-		if buf, err := pkt.Marshal(); err == nil {
-			if _, err := audioTrack.Write(buf); err != nil {
-				log.Printf("WebRTC audio write error for %s: %v", peerID, err)
-			}
-		}
+		sess.transcoder.WriteAAC(aacFrame)
 	})
 
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
@@ -285,7 +294,7 @@ func (s *Server) HandleOffer(w http.ResponseWriter, r *http.Request) {
 		"peerId": peerID,
 	})
 
-	log.Printf("WebRTC answer sent for %s", peerID)
+	log.Printf("WebRTC answer sent for %s (Opus audio: %v)", peerID, sess.transcoder != nil)
 }
 
 // HandleICECandidate processes a trickle-ICE candidate from a viewer.
@@ -327,7 +336,7 @@ func (s *Server) HandleICECandidate(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// cleanupPeer unsubscribes and removes a peer session.
+// cleanupPeer unsubscribes, closes the transcoder, and removes a peer session.
 func (s *Server) cleanupPeer(peerID string) {
 	if val, ok := s.peers.LoadAndDelete(peerID); ok {
 		sess := val.(*peerSession)
@@ -337,15 +346,15 @@ func (s *Server) cleanupPeer(peerID string) {
 		if sess.unsubVideo != nil {
 			sess.unsubVideo()
 		}
+		if sess.transcoder != nil {
+			sess.transcoder.Close()
+		}
 		sess.pc.Close()
 	}
 }
 
 // avccToAnnexB converts AVCC (ISO 14496-15) length-prefixed NAL units to
 // Annex B (ITU-T H.264) start-code format, which pion's H264Payloader expects.
-//
-// AVCC format:  [4-byte big-endian NAL length][NAL data]...
-// Annex B:      [0x00 0x00 0x00 0x01][NAL data]...
 func avccToAnnexB(avcc []byte) []byte {
 	annexB := make([]byte, 0, len(avcc)+4)
 	for len(avcc) >= 4 {
@@ -359,22 +368,4 @@ func avccToAnnexB(avcc []byte) []byte {
 		avcc = avcc[nalLen:]
 	}
 	return annexB
-}
-
-// wrapAACinLATM wraps a raw AAC frame in a minimal LATM AudioMuxElement
-// suitable for RTP transport per RFC 6416 section 6.3.
-//
-// We use the "octet-aligned" mode with a 2-byte AU-Header-Section:
-//   [AU-Header-Length = 16 bits (2 bytes)]
-//   [AU-Header: 13-bit size + 3-bit index = 16 bits (2 bytes)]
-//   [AAC frame payload]
-func wrapAACinLATM(aac []byte) []byte {
-	frameLen := uint16(len(aac))
-	out := make([]byte, 4+len(aac))
-	// AU-Header-Length: 16 (= 2-byte AU header follows)
-	binary.BigEndian.PutUint16(out[0:2], 16)
-	// AU-Header: size (13 bits) | index (3 bits, always 0 for first frame)
-	binary.BigEndian.PutUint16(out[2:4], (frameLen<<3)&0xFFF8)
-	copy(out[4:], aac)
-	return out
 }
