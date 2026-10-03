@@ -20,7 +20,7 @@
             </div>
             <h2 class="login-title">Enter your API key</h2>
             <p class="login-subtitle">
-                Your key is shown once in the terminal when the server first starts.<br>
+                Your key is printed in the terminal <strong>every time the server starts</strong>.<br>
                 You can also find it in the <strong>API Keys</strong> tab after signing in.
             </p>
 
@@ -44,15 +44,14 @@
             <details class="login-help">
                 <summary><i class="fas fa-question-circle"></i> Where do I find my key?</summary>
                 <div class="login-help-body">
-                    <p><strong>Option 1 — Terminal output</strong><br>
-                    Look for the box that appeared when the server started:</p>
-                    <pre>╔══════════════════════════════════╗
-║  🔑 First-run: API key generated ║
-║  sk_xxxxxxxxxxxxxxxxxxxxxxxx...  ║
-╚══════════════════════════════════╝</pre>
-                    <p><strong>Option 2 — Generate a new one</strong><br>
-                    Run this in the project folder:</p>
-                    <pre>node -e "const {key}=require('./auth').generateAPIKey('Dashboard'); console.log(key)"</pre>
+                    <p><strong>Terminal output (every startup)</strong><br>
+                    Look for this box in the terminal where you ran <code>node server.js</code>:</p>
+                    <pre>╔══════════════════════════════════════════════════════╗
+║  🔑 API Keys                                         ║
+║  Name: Dashboard (auto-generated)                    ║
+║  sk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx...              ║
+╚══════════════════════════════════════════════════════╝</pre>
+                    <p>Copy the full <code>sk_…</code> line and paste it above.</p>
                 </div>
             </details>
         </div>
