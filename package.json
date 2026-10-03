@@ -9,7 +9,14 @@
     "dev": "nodemon server.js",
     "go:build": "cd go-media-server && go mod tidy && go build -o go-media-server.exe .",
     "go:run": "cd go-media-server && go run .",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:go": "cd go-media-server && go test ./... -race -count=1",
+    "test:go:bench": "cd go-media-server && go test -bench=. -benchmem ./pkg/stream/",
+    "test:all": "npm test && npm run test:go"
+  },
+  "overrides": {
+    "braces": "^3.0.3"
   },
   "keywords": [
     "rtmp",
@@ -55,6 +62,13 @@
     "uuid": "^14.0.2"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
+    "nodemon": "^3.1.14",
+    "supertest": "^7.3.1",
+    "vitest": "^5.0.3"
+  },
+  "vitest": {
+    "include": ["tests/**/*.test.js"],
+    "environment": "node",
+    "testTimeout": 10000
   }
 }

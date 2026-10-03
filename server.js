@@ -10,6 +10,7 @@ const { execSync, spawn } = require('child_process');
 const fs = require('fs');
 const rateLimit = require('express-rate-limit');
 const { requireAPIKey, generateAPIKey, revokeAPIKey, revokeAPIKeyById, listAPIKeys } = require('./auth');
+const { isValidUUID, sanitizeTitle, redactStreamKey, safeArgs } = require('./helpers');
 
 // Express app setup
 const app = express();
@@ -171,36 +172,7 @@ if (listAPIKeys().length === 0) {
   console.log('╚══════════════════════════════════════════════════════╝\n');
 }
 
-// UUID validation helper
-function isValidUUID(str) {
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  return uuidRegex.test(str);
-}
-
-// Title sanitization helper
-function sanitizeTitle(title) {
-  if (!title || typeof title !== 'string') {
-    return null;
-  }
-  
-  // Remove control characters, zero-width chars, and trim
-  const cleaned = title
-    .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Control chars
-    .replace(/[\u200B-\u200D\uFEFF]/g, '')         // Zero-width
-    .trim();
-  
-  // Enforce length limits
-  if (cleaned.length === 0 || cleaned.length > 100) {
-    return null;
-  }
-  
-  return cleaned;
-}
-
-// Redact stream key for logging
-function redactStreamKey(streamPath) {
-  return streamPath.replace(/\/([^\/]+)$/, '/***REDACTED***');
-}
+// isValidUUID, sanitizeTitle, redactStreamKey, safeArgs imported from helpers.js
 
 // Get local IP address
 function getLocalIP() {
@@ -256,15 +228,7 @@ const config = {
 
 const nms = new NodeMediaServer(config);
 
-// RTMP Events
-
-// Sanitise RTMP connection args to avoid leaking stream keys embedded in
-// tcUrl / swfUrl / pageUrl that OBS and other encoders send verbatim.
-function safeArgs(args) {
-  if (!args || typeof args !== 'object') return {};
-  const { app, flashVer, objectEncoding, type } = args;
-  return { app, flashVer, objectEncoding, type };
-}
+// RTMP Events — safeArgs() is imported from helpers.js
 
 nms.on('preConnect', (id, args) => {
   console.log('[NodeEvent on preConnect]', `id=${id}`, safeArgs(args));

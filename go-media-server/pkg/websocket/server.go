@@ -54,11 +54,7 @@ func (s *Server) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	s.streamManager.AddClient(streamKey)
 
 	// --- Send FLV header ---
-	// FLV header: "FLV" + version(1) + flags(audio+video=0x05) + dataOffset(9)
-	flvHeader := []byte{'F', 'L', 'V', 0x01, 0x05, 0x00, 0x00, 0x00, 0x09}
-	// PreviousTagSize0 = 0
-	flvHeader = append(flvHeader, 0x00, 0x00, 0x00, 0x00)
-	if err := conn.WriteMessage(websocket.BinaryMessage, flvHeader); err != nil {
+	if err := conn.WriteMessage(websocket.BinaryMessage, makeFLVHeader()); err != nil {
 		log.Printf("WebSocket FLV header write error: %v", err)
 		return
 	}
@@ -102,6 +98,31 @@ func (s *Server) HandleConnection(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+}
+
+// makeFLVHeader returns a valid 13-byte FLV file header (signature + PreviousTagSize0).
+//
+// Layout:
+//
+//	[3] "FLV" signature
+//	[1] version = 0x01
+//	[1] flags: 0x05 = audio (bit 2) + video (bit 0)
+//	[4] DataOffset = 9 (big-endian, always)
+//	[4] PreviousTagSize0 = 0
+func makeFLVHeader() []byte {
+	hdr := make([]byte, 13)
+	hdr[0] = 'F'
+	hdr[1] = 'L'
+	hdr[2] = 'V'
+	hdr[3] = 0x01 // version
+	hdr[4] = 0x05 // audio + video flags
+	// DataOffset = 9 (big-endian uint32 at [5:9])
+	hdr[5] = 0x00
+	hdr[6] = 0x00
+	hdr[7] = 0x00
+	hdr[8] = 0x09
+	// PreviousTagSize0 = 0 (already zero-initialised)
+	return hdr
 }
 
 // makeFLVTag wraps a raw audio or video payload in an FLV tag.
