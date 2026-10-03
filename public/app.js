@@ -869,6 +869,18 @@ function _setLatencyBadge(valueMs) {
     latencyEl.parentElement.className = `stat-item latency-badge latency-${cls}`;
 }
 
+/** Show the "Go server offline" overlay inside the player area. */
+function _showGoServerOffline() {
+    const el = document.getElementById('goServerOffline');
+    if (el) el.style.display = 'flex';
+}
+
+/** Hide the "Go server offline" overlay. */
+function _hideGoServerOffline() {
+    const el = document.getElementById('goServerOffline');
+    if (el) el.style.display = 'none';
+}
+
 // Modal functions
 function showCreateStreamModal() {
     document.getElementById('createStreamModal').classList.add('active');
@@ -1163,6 +1175,7 @@ function hideVideoPlayer() {
     currentPlayingKey = null;
     isRecording = false;
 
+    _hideGoServerOffline();
     const goLiveBtn = document.getElementById('goLiveBtn');
     if (goLiveBtn) goLiveBtn.style.display = 'none';
 
@@ -1418,6 +1431,9 @@ function switchPlayerMode(mode, btn) {
     // Reset latency badge — new mode will populate it once connected
     _setLatencyBadge(null);
 
+    // Hide the offline overlay — the new player will show it again if needed
+    _hideGoServerOffline();
+
     // Show/hide the correct player element.
     // Note: WS mode reuses hlsVideo (flv.js attaches to it) — wsCanvas is unused.
     const hlsVideo   = document.getElementById('videoPlayer');
@@ -1546,7 +1562,7 @@ async function _startWebSocketPlayer(streamKey) {
     flvPlayerInstance.on(flvjs.Events.ERROR, (errType, errDetail) => {
         console.error('flv.js error:', errType, errDetail);
         if (errType === flvjs.ErrorTypes.NETWORK_ERROR) {
-            showWarningNotification('WebSocket player: Go media server not running on port 8084. Use HLS mode.');
+            _showGoServerOffline();
         } else {
             showErrorNotification(`WebSocket player error: ${errType}`);
         }
@@ -1679,11 +1695,11 @@ async function _startWebRTCPlayer(streamKey) {
     } catch (err) {
         if (_webrtcLatencyInterval) { clearInterval(_webrtcLatencyInterval); _webrtcLatencyInterval = null; }
         const isServerDown = err.message.includes('Failed to fetch') || err.message.includes('Go media server');
-        showWarningNotification(
-            isServerDown
-                ? 'WebRTC unavailable — Go media server not running on port 8084. Use HLS mode.'
-                : `WebRTC error: ${err.message}`
-        );
+        if (isServerDown) {
+            _showGoServerOffline();
+        } else {
+            showErrorNotification(`WebRTC error: ${err.message}`);
+        }
         webrtcVid.style.display = 'none';
     }
 }

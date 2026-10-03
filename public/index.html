@@ -536,6 +536,19 @@
                 <!-- WebSocket canvas fallback -->
                 <canvas id="wsCanvas" class="video-player" style="display:none;"></canvas>
 
+                <!-- Go-server-offline notice (shown when WS/WebRTC unavailable) -->
+                <div id="goServerOffline" style="display:none; position:absolute; inset:0; background:rgba(0,0,0,0.82); display:none; align-items:center; justify-content:center; flex-direction:column; gap:12px; border-radius:4px; z-index:10;">
+                    <i class="fas fa-server" style="font-size:2.4rem; color:#888;"></i>
+                    <p style="color:#ccc; font-size:0.95rem; text-align:center; margin:0; max-width:320px;">
+                        Go media server not running on port 8084.<br>
+                        <strong style="color:#fff;">Start it with:</strong>
+                    </p>
+                    <code style="background:#111; color:#7cf; padding:6px 14px; border-radius:4px; font-size:0.82rem;">cd go-media-server &amp;&amp; go run .</code>
+                    <button onclick="switchPlayerMode('hls', document.getElementById('modeBtnHls'))" style="margin-top:4px; padding:7px 22px; background:#c00; color:#fff; border:none; border-radius:4px; cursor:pointer; font-size:0.88rem;">
+                        <i class="fas fa-tv"></i> Switch to HLS
+                    </button>
+                </div>
+
                 <!-- YouTube-style "Go Live" button -->
                 <button id="goLiveBtn" class="go-live-btn" onclick="seekToLive()" style="display: none;">
                     <i class="fas fa-dot-circle"></i> GO LIVE

@@ -491,6 +491,7 @@ h2 {
 
 .modal-body {
     padding: 20px;
+    position: relative; /* needed for go-server-offline absolute overlay */
 }
 
 .modal-footer {
