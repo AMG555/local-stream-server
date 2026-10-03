@@ -765,7 +765,7 @@ Address: rtmp://YOUR_IP:1935/live/YOUR_STREAM_KEY
 
 ## 🔐 Security
 
-**Authentication** is required for all API endpoints. An API key (`sk_...`) is auto-generated on first run and printed to the console. All subsequent requests need `Authorization: Bearer <key>`.
+**Authentication** is required for all API endpoints. An API key (`sk_...`) is auto-generated on first run and printed to the console. **All keys are printed on every startup** so the key is never lost. All subsequent requests need `Authorization: Bearer <key>`.
 
 **Built-in hardening:**
 - ✅ API key authentication on all `/api/*` routes

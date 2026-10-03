@@ -5,6 +5,23 @@ All notable changes to Local Stream Server will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2] - Latency fixes + startup key display
+
+### 🔧 Fixed
+
+- **HLS "infinity latency"** — `video.duration` is `Infinity` for live HLS streams; replaced with `hlsInstance.latency` (HLS.js built-in live-edge offset)
+- **WebSocket "-- latency"** — no measurement was running; added 500ms poll of `buffered.end − currentTime` after flv.js attaches, plus `STATISTICS_INFO` event hook
+- **WebRTC "-- latency"** — no measurement was running; added 1s poll of `RTCPeerConnection.getStats()` reading `inbound-rtp` jitter + 20ms estimate after first track arrives
+- **Broken WebSocket probe** — `probe.close()` fired `onerror` in Chrome on healthy servers, showing false "Go server not running" warning; probe removed entirely (flv.js handles errors itself)
+- **Stale latency on mode switch** — `switchPlayerMode()` now resets badge to `-- latency` before new mode starts measuring
+
+### ✨ Added
+
+- `_setLatencyBadge(valueMs)` — shared helper formats latency as `NNNms` (sub-second) or `N.Ns` (over 1s) with correct colour class
+- **API keys always printed on startup** — all `sk_…` keys shown in terminal every restart (not only first-run), so the key is never lost
+
+---
+
 ## [1.5.0] - RTMP/SRT UI selector + full test suite
 
 ### ✨ Added
@@ -331,6 +348,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Version History
 
+- **1.5.2** - Real-time latency for HLS/WS/WebRTC, remove broken WS probe, API keys printed on every startup
+- **1.5.0** - RTMP/SRT protocol selector in UI, full 111-test suite (vitest + Go), helpers.js extracted
 - **1.4.0** - Real WebRTC H.264 RTP packetizer + AAC-LATM, real FLV timestamps from encoder PTS
 - **1.3.0** - Real SRT ingest (datarhei/gosrt, MPEG-TS demux), FLV-over-WebSocket (flv.js), player mode fixes
 - **1.2.0** - Enterprise hardening: API key auth, rate limiting, CSP, Go concurrency fixes, revoke-by-ID, delete recordings
