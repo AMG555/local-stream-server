@@ -1,5 +1,4 @@
 // ─── API Key Auth ────────────────────────────────────────────────────────────
-// Single-user local tool: key is stored in localStorage and sent on every request.
 const API_KEY_STORAGE = 'stream_server_api_key';
 
 function getApiKey() {
@@ -14,40 +13,94 @@ function clearApiKey() {
     localStorage.removeItem(API_KEY_STORAGE);
 }
 
+// ── Login overlay ─────────────────────────────────────────────────────────────
+
+let _loginResolve = null; // resolves when the user submits a valid key
+
+/** Show the login overlay and wait for the user to enter a valid key. */
+function showLoginOverlay() {
+    return new Promise(resolve => {
+        _loginResolve = resolve;
+        const overlay = document.getElementById('loginOverlay');
+        overlay.style.display = 'flex';
+        const input = document.getElementById('loginKeyInput');
+        input.value = '';
+        document.getElementById('loginError').style.display = 'none';
+        setTimeout(() => input.focus(), 80);
+
+        // Enter key submits
+        input.onkeydown = (e) => { if (e.key === 'Enter') submitLogin(); };
+    });
+}
+
+function hideLoginOverlay() {
+    document.getElementById('loginOverlay').style.display = 'none';
+    _loginResolve = null;
+}
+
+async function submitLogin() {
+    const input = document.getElementById('loginKeyInput');
+    const key = input.value.trim();
+    if (!key) return;
+
+    const btn = document.getElementById('loginBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking…';
+
+    // Validate against the server
+    try {
+        const resp = await fetch('/api/streams', {
+            headers: { 'Authorization': `Bearer ${key}` }
+        });
+        if (resp.ok) {
+            setApiKey(key);
+            hideLoginOverlay();
+            if (_loginResolve) _loginResolve(key);
+        } else {
+            document.getElementById('loginError').style.display = 'flex';
+            input.value = '';
+            input.focus();
+        }
+    } catch (_) {
+        document.getElementById('loginError').style.display = 'flex';
+    }
+
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Sign In';
+}
+
+function toggleLoginKeyVisibility() {
+    const input = document.getElementById('loginKeyInput');
+    const icon  = document.getElementById('loginToggleIcon');
+    if (input.type === 'password') {
+        input.type = 'text';
+        icon.className = 'fas fa-eye-slash';
+    } else {
+        input.type = 'password';
+        icon.className = 'fas fa-eye';
+    }
+}
+
 /**
- * Wrapper around fetch that injects Authorization header on protected routes.
- * Handles 401/403 by prompting the user to re-enter their API key.
+ * Wrapper around fetch that injects Authorization header.
+ * Shows the login overlay (not a browser prompt) on 401/403.
  */
 async function apiFetch(url, options = {}) {
     const key = getApiKey();
     const headers = { ...(options.headers || {}) };
-    
-    if (key) {
-        headers['Authorization'] = `Bearer ${key}`;
-    }
-    
+
+    if (key) headers['Authorization'] = `Bearer ${key}`;
+
     const response = await fetch(url, { ...options, headers });
-    
+
     if (response.status === 401 || response.status === 403) {
-        // Key missing or invalid — prompt user
-        const newKey = prompt(
-            '🔐 API key required.\n\n' +
-            'Run this in the server terminal to generate one:\n' +
-            '  node -e "require(\'./auth\').generateAPIKey(\'Dashboard\')" \n\n' +
-            'Or check the server startup output for your key.\n\n' +
-            'Paste your API key below:'
-        );
-        
-        if (newKey && newKey.trim()) {
-            setApiKey(newKey.trim());
-            // Retry once with new key
-            headers['Authorization'] = `Bearer ${newKey.trim()}`;
-            return fetch(url, { ...options, headers });
-        }
-        
-        throw new Error('Authentication required');
+        // Key missing or invalid — show login overlay, wait for valid key
+        clearApiKey();
+        const newKey = await showLoginOverlay();
+        headers['Authorization'] = `Bearer ${newKey}`;
+        return fetch(url, { ...options, headers });
     }
-    
+
     return response;
 }
 
@@ -73,11 +126,16 @@ let uptimeInterval = null;        // FIX: track uptime interval
 document.addEventListener('DOMContentLoaded', async () => {
     showLoadingState();
     setupSocketListeners();
+
+    // If no key is stored yet, show the login overlay before doing anything else.
+    if (!getApiKey()) {
+        await showLoginOverlay();
+    }
+
     await loadServerInfo();
     await loadAllStreams();
     startUptimeTimer();
     setupKeyboardShortcuts();
-    // FIX: single interval, stored so it can be cleared if needed (BUG #5)
     pollInterval = setInterval(loadAllStreams, 5000);
 });
 
