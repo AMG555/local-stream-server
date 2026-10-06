@@ -424,9 +424,9 @@ async function deleteCurrentStream() {
 
 // UI functions
 function updateServerInfo() {
-    document.getElementById('rtmpPort').textContent = serverInfo.rtmpPort || 1935;
+    document.getElementById('rtmpPort').textContent = serverInfo.rtmpPort || 2935;
     if (document.getElementById('srtPort')) {
-        document.getElementById('srtPort').textContent = serverInfo.srtPort || 8554;
+        document.getElementById('srtPort').textContent = serverInfo.srtPort || 9554;
     }
     document.getElementById('activeCount').textContent = serverInfo.activeStreams;
     document.getElementById('totalKeys').textContent = serverInfo.totalStreams;
@@ -619,13 +619,13 @@ function renderLiveStreams(streams) {
             <div style="margin-top: 8px; font-size: 14px; line-height: 1.6;">
                 <strong>VLC Player (Recommended):</strong><br>
                 Open VLC → Media → Open Network Stream<br>
-                URL: <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 3px;">rtmp://${serverInfo && serverInfo.localIP ? serverInfo.localIP : 'YOUR_IP'}:1935/live/YOUR_STREAM_KEY</code>
+                URL: <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 3px;">rtmp://${serverInfo && serverInfo.localIP ? serverInfo.localIP : 'YOUR_IP'}:2935/live/YOUR_STREAM_KEY</code>
                 <br><br>
                 <details style="cursor: pointer;">
                     <summary>Or use OBS Preview / FFplay</summary>
                     <div style="margin-top: 8px; padding: 8px; background: rgba(0,0,0,0.2); border-radius: 4px;">
                         <strong>OBS Preview:</strong> Add Media Source with RTMP URL<br>
-                        <strong>FFplay:</strong> <code style="background: rgba(0,0,0,0.3); padding: 2px 6px;">ffplay rtmp://IP:1935/live/KEY</code>
+                        <strong>FFplay:</strong> <code style="background: rgba(0,0,0,0.3); padding: 2px 6px;">ffplay rtmp://IP:2935/live/KEY</code>
                     </div>
                 </details>
             </div>
@@ -899,12 +899,12 @@ function showStreamDetails(data) {
     document.getElementById('detailsPlaybackUrl').value = data.streamUrl;
 
     // SRT fields — build the full srt:// URL with streamid in OBS format
-    const srtBase = serverInfo.srtUrl || `srt://${serverInfo.localIP || 'localhost'}:8554`;
+    const srtBase = serverInfo.srtUrl || `srt://${serverInfo.localIP || 'localhost'}:9554`;
     const srtUrl = `${srtBase}?streamid=key=${data.streamKey}&latency=120000`;
     document.getElementById('detailsSrtUrl').value = srtUrl;
     document.getElementById('detailsStreamKeySrt').value = data.streamKey;
-    // WS playback URL for SRT ingest (Go server port 8084)
-    const goApiBase = `ws://${serverInfo.localIP || 'localhost'}:8084`;
+    // WS playback URL for SRT ingest (Go server port 9084)
+    const goApiBase = `ws://${serverInfo.localIP || 'localhost'}:9084`;
     document.getElementById('detailsPlaybackUrlSrt').value = `${goApiBase}/ws?key=${data.streamKey}`;
 
     // Update FFmpeg command in SRT panel
@@ -968,7 +968,7 @@ function hideStreamDetailsModal() {
 function showServerInfo() {
     document.getElementById('infoLocalIP').textContent = serverInfo.localIP;
     document.getElementById('infoRtmpPort').textContent = serverInfo.rtmpPort;
-    document.getElementById('infoSrtPort').textContent = serverInfo.srtPort || 8554;
+    document.getElementById('infoSrtPort').textContent = serverInfo.srtPort || 9554;
     document.getElementById('infoHttpPort').textContent = serverInfo.httpPort;
     document.getElementById('infoMediaPort').textContent = serverInfo.mediaPort;
     document.getElementById('serverInfoModal').classList.add('active');
@@ -979,7 +979,7 @@ function hideServerInfoModal() {
 }
 
 function playStream(streamKey, title) {
-    const playbackUrl = `http://${serverInfo.localIP}:8081/live/${streamKey}/index.m3u8`;
+    const playbackUrl = `http://${serverInfo.localIP}:${serverInfo.mediaPort}/live/${streamKey}/index.m3u8`;
     
     document.getElementById('playerTitle').textContent = title;
     const video = document.getElementById('videoPlayer');
@@ -1519,7 +1519,7 @@ let flvPlayerInstance = null; // flv.js player instance
  * Falls back gracefully with a clear message if the Go server is not running.
  */
 async function _startWebSocketPlayer(streamKey) {
-    const goPort = 8084;
+    const goPort = 9084;
     // flv.js WebSocket URL — Go server must send FLV over this socket
     const wsUrl = `ws://${window.location.hostname}:${goPort}/ws?key=${encodeURIComponent(streamKey)}`;
 
@@ -1613,7 +1613,7 @@ async function _startWebSocketPlayer(streamKey) {
  * Start WebRTC playback via the Go media server signaling endpoint.
  */
 async function _startWebRTCPlayer(streamKey) {
-    const goPort = 8084;
+    const goPort = 9084;
     const webrtcVid = document.getElementById('webrtcPlayer');
     webrtcVid.style.display = 'block';
 

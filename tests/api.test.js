@@ -41,10 +41,10 @@ function buildApp() {
   app.get('/api/info', (req, res) => {
     res.json({
       localIP: '127.0.0.1',
-      rtmpPort: 1935,
-      httpPort: 8000,
-      mediaPort: 8081,
-      rtmpUrl: 'rtmp://127.0.0.1:1935/live',
+      rtmpPort: 2935,
+      httpPort: 9000,
+      mediaPort: 9081,
+      rtmpUrl: 'rtmp://127.0.0.1:2935/live',
       totalStreams: streamKeys.size,
       activeStreams: activeStreams.size,
       ffmpegAvailable: false
@@ -161,8 +161,8 @@ describe('GET /api/info', () => {
   it('returns 200 with server info (public — no auth needed)', async () => {
     const res = await request.get('/api/info');
     expect(res.status).toBe(200);
-    expect(res.body).toHaveProperty('rtmpPort', 1935);
-    expect(res.body).toHaveProperty('httpPort', 8000);
+    expect(res.body).toHaveProperty('rtmpPort', 2935);
+    expect(res.body).toHaveProperty('httpPort', 9000);
     expect(res.body).not.toHaveProperty('ffmpegPath');
   });
 });

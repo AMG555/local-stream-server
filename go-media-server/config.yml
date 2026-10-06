@@ -1,20 +1,20 @@
 # Go Media Server Configuration
-# NOTE: Node-Media-Server (Node.js) owns RTMP port 1935 for ingest + HLS.
-# The Go RTMP server listens on 1936 to avoid conflict when both run together.
-# Use port 1935 only if running the Go server standalone (without Node.js).
+# NOTE: Node-Media-Server (Node.js) owns RTMP port 2935 for ingest + HLS.
+# The Go RTMP server listens on 2936 to avoid conflict when both run together.
+# Use port 2935 only if running the Go server standalone (without Node.js).
 
 rtmp:
-  port: 1936
+  port: 2936
   chunk_size: 4096
   gop_cache: true
   ping_timeout: 60
 
 srt:
-  port: 8554
+  port: 9554
   latency: 120           # milliseconds (ultra-low latency)
   max_bandwidth: 0       # 0 = unlimited
   overhead_bw: 25        # percentage
 
 api:
-  port: 8084
+  port: 9084
   host: "0.0.0.0"

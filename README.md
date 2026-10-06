@@ -71,7 +71,7 @@ ive on any platform
 
 ## ✨ Features
 
-- 🎬 **Multiple Protocol Support** - RTMP (1935), SRT (8554), WebSocket, WebRTC
+- 🎬 **Multiple Protocol Support** - RTMP (2935), SRT (9554), WebSocket, WebRTC
 - 📺 **Multiple Playback Options** - HLS (1.5-2.5s), WebSocket+MSE (0.3-0.8s), WebRTC (0.05-0.3s)
 - 🔑 **Stream Key Management** - Generate and manage unlimited test streams
 - 📊 **Real-time Monitoring** - Live bitrate, FPS, resolution, dropped frames, actual latency
@@ -86,8 +86,8 @@ ive on any platform
 - 📱 **Mobile Responsive** - Monitor from phone/tablet while streaming
 
 **Protocol Support:**
-- ✅ **RTMP** (Real-Time Messaging Protocol) - Port 1935 (Node.js + Go)
-- ✅ **SRT** (Secure Reliable Transport) - Port 8554 (Go server, 120ms latency)
+- ✅ **RTMP** (Real-Time Messaging Protocol) - Port 2935 (Node.js + Go)
+- ✅ **SRT** (Secure Reliable Transport) - Port 9554 (Go server, 120ms latency)
 - ✅ **WebRTC** - Ultra-low latency peer-to-peer (Go server, 50-300ms)
 - ✅ **WebSocket** - Low-latency streaming with MSE (Go server, 300-800ms)
 
@@ -135,7 +135,7 @@ npm start
 
 3. **Access the web interface:**
 ```
-http://localhost:8000
+http://localhost:9000
 ```
 
 The server will display your local IP address. Use this to access from other devices on the same network.
@@ -193,7 +193,7 @@ Want to access from anywhere? Use Cloudflare Tunnel!
 start-tunnel-quick.bat
 
 # Mac/Linux
-npx cloudflared tunnel --url http://localhost:8000
+npx cloudflared tunnel --url http://localhost:9000
 ```
 
 Get a public URL like `https://random-words.trycloudflare.com` - share with anyone!
@@ -254,7 +254,7 @@ This server replicates the streaming workflow of ANY RTMP platform:
 
 ### Step 1: Create a Stream Key
 
-1. Open web interface: `http://localhost:8000`
+1. Open web interface: `http://localhost:9000`
 2. Click **"New Stream Key"** button
 3. Enter stream title (e.g., "Encoder Test 1")
 4. Copy generated RTMP URL and Stream Key
@@ -264,18 +264,18 @@ This server replicates the streaming workflow of ANY RTMP platform:
 **OBS Studio:**
 1. Settings → Stream
 2. Service: `Custom`
-3. Server: `rtmp://YOUR_LOCAL_IP:1935/live`
+3. Server: `rtmp://YOUR_LOCAL_IP:2935/live`
 4. Stream Key: `[your generated key]`
 
 **vMix:**
 1. Settings → Outputs → Stream
 2. Destination: `Custom RTMP Server`
-3. URL: `rtmp://YOUR_LOCAL_IP:1935/live/[your-key]`
+3. URL: `rtmp://YOUR_LOCAL_IP:2935/live/[your-key]`
 
 **Wirecast:**
 1. Output → Output Settings
 2. Destination: `RTMP Server`
-3. Address: `rtmp://YOUR_LOCAL_IP:1935/live`
+3. Address: `rtmp://YOUR_LOCAL_IP:2935/live`
 4. Stream: `[your generated key]`
 
 **See [OBS_SETUP_GUIDE.md](OBS_SETUP_GUIDE.md) for detailed encoder comparisons**
@@ -302,18 +302,18 @@ This server replicates the streaming workflow of ANY RTMP platform:
 
 **Option B: VLC Player** (No FFmpeg Needed)
 - Open VLC → Media → Open Network Stream
-- Enter: `rtmp://YOUR_IP:1935/live/YOUR_STREAM_KEY`
+- Enter: `rtmp://YOUR_IP:2935/live/YOUR_STREAM_KEY`
 - Click Play
 
 **Option C: OBS Preview** (No FFmpeg Needed)
 - Open second OBS instance
 - Add "Media Source"
-- URL: `rtmp://YOUR_IP:1935/live/YOUR_STREAM_KEY`
+- URL: `rtmp://YOUR_IP:2935/live/YOUR_STREAM_KEY`
 - Uncheck "Local File"
 
 **Option D: FFplay** (If FFmpeg installed)
 ```bash
-ffplay rtmp://YOUR_IP:1935/live/YOUR_STREAM_KEY
+ffplay rtmp://YOUR_IP:2935/live/YOUR_STREAM_KEY
 ```
 
 ## 🎮 OBS Settings for Best Quality
@@ -342,19 +342,19 @@ ffplay rtmp://YOUR_IP:1935/live/YOUR_STREAM_KEY
 
 ### Server Ports
 
-- **HTTP Server**: 8000 (Web Interface)
-- **RTMP Server**: 1935 (Stream Ingest — Node.js)
-- **Media Server**: 8081 (HLS Playback — Node.js)
-- **SRT Server**: 8554 (Ultra-low latency ingest — Go)
-- **Go API**: 8084 (WebSocket/WebRTC/streams — Go)
+- **HTTP Server**: 9000 (Web Interface)
+- **RTMP Server**: 2935 (Stream Ingest — Node.js)
+- **Media Server**: 9081 (HLS Playback — Node.js)
+- **SRT Server**: 9554 (Ultra-low latency ingest — Go)
+- **Go API**: 9084 (WebSocket/WebRTC/streams — Go)
 
 ### Customize Ports
 
 Edit `server.js`:
 
 ```javascript
-const HTTP_PORT = 8000;
-const RTMP_PORT = 1935;
+const HTTP_PORT = 9000;
+const RTMP_PORT = 2935;
 ```
 
 ## 📱 Using on New Devices (Complete Guide)
@@ -400,8 +400,8 @@ const RTMP_PORT = 1935;
 7. **Note the IP address** shown in terminal (e.g., `192.168.1.100`)
 
 8. **Access from any device on same WiFi**:
-   - Web Interface: `http://192.168.1.100:8000`
-   - RTMP Server: `rtmp://192.168.1.100:1935/live`
+   - Web Interface: `http://192.168.1.100:9000`
+   - RTMP Server: `rtmp://192.168.1.100:2935/live`
 
 #### Option 2: Fresh Install on New Device
 
@@ -435,8 +435,8 @@ const RTMP_PORT = 1935;
 1. **Ensure mobile device is on SAME WiFi** as streaming server
 2. **Get server IP address** from terminal where server is running
 3. **Open mobile browser** (Safari, Chrome, Firefox)
-4. **Navigate to**: `http://SERVER_IP:8000`
-   - Example: `http://192.168.1.100:8000`
+4. **Navigate to**: `http://SERVER_IP:9000`
+   - Example: `http://192.168.1.100:9000`
 5. **Click any live stream** to watch
 6. **Works on**:
    - iPhone/iPad (Safari)
@@ -453,8 +453,8 @@ const RTMP_PORT = 1935;
 4. **In OBS Settings → Stream**:
    ```
    Service: Custom
-   Server: rtmp://SERVER_IP:1935/live
-   Stream Key: [get from web interface at http://SERVER_IP:8000]
+   Server: rtmp://SERVER_IP:2935/live
+   Stream Key: [get from web interface at http://SERVER_IP:9000]
    ```
 5. **Start Streaming** in OBS
 
@@ -485,16 +485,16 @@ Look for "inet" address (not 127.0.0.1)
 **Windows Firewall:**
 ```powershell
 # Allow RTMP port
-New-NetFirewallRule -DisplayName "Stream Server RTMP" -Direction Inbound -LocalPort 1935 -Protocol TCP -Action Allow
+New-NetFirewallRule -DisplayName "Stream Server RTMP" -Direction Inbound -LocalPort 2935 -Protocol TCP -Action Allow
 
 # Allow HTTP port
-New-NetFirewallRule -DisplayName "Stream Server HTTP" -Direction Inbound -LocalPort 8000 -Protocol TCP -Action Allow
+New-NetFirewallRule -DisplayName "Stream Server HTTP" -Direction Inbound -LocalPort 9000 -Protocol TCP -Action Allow
 
 # Allow Media port
-New-NetFirewallRule -DisplayName "Stream Server Media" -Direction Inbound -LocalPort 8081 -Protocol TCP -Action Allow
+New-NetFirewallRule -DisplayName "Stream Server Media" -Direction Inbound -LocalPort 9081 -Protocol TCP -Action Allow
 
 # Allow SRT port (UDP — Go media server)
-New-NetFirewallRule -DisplayName "Stream Server SRT" -Direction Inbound -LocalPort 8554 -Protocol UDP -Action Allow
+New-NetFirewallRule -DisplayName "Stream Server SRT" -Direction Inbound -LocalPort 9554 -Protocol UDP -Action Allow
 ```
 
 **Mac Firewall:**
@@ -504,10 +504,10 @@ New-NetFirewallRule -DisplayName "Stream Server SRT" -Direction Inbound -LocalPo
 
 **Linux Firewall (UFW):**
 ```bash
-sudo ufw allow 1935/tcp
-sudo ufw allow 8000/tcp
-sudo ufw allow 8081/tcp
-sudo ufw allow 8554/udp  # SRT
+sudo ufw allow 2935/tcp
+sudo ufw allow 9000/tcp
+sudo ufw allow 9081/tcp
+sudo ufw allow 9554/udp  # SRT
 ```
 
 ### 📋 Quick Setup Checklist for New Devices
@@ -520,7 +520,7 @@ sudo ufw allow 8554/udp  # SRT
 - [ ] Node.js server started: `npm start`
 - [ ] Go media server started: `npm run go:run`
 - [ ] Server IP address noted
-- [ ] Firewall ports opened (1935 TCP, 8000 TCP, 8081 TCP, 8554 UDP)
+- [ ] Firewall ports opened (2935 TCP, 9000 TCP, 9081 TCP, 9554 UDP)
 - [ ] All devices on same WiFi network
 - [ ] Web interface accessible from browser
 
@@ -530,20 +530,20 @@ sudo ufw allow 8554/udp  # SRT
 1. Run server on laptop: `npm start`
 2. Note laptop IP: `192.168.1.50`
 3. Configure OBS on laptop with stream key
-4. On phone browser: `http://192.168.1.50:8000`
+4. On phone browser: `http://192.168.1.50:9000`
 5. Watch live stream on phone
 
 #### Scenario 2: Server on Desktop, Stream from Laptop
 1. Run server on desktop: `npm start`
 2. Note desktop IP: `192.168.1.100`
 3. On laptop, install OBS
-4. Laptop browser: `http://192.168.1.100:8000` → Create stream key
-5. Laptop OBS: Use `rtmp://192.168.1.100:1935/live` + stream key
+4. Laptop browser: `http://192.168.1.100:9000` → Create stream key
+5. Laptop OBS: Use `rtmp://192.168.1.100:2935/live` + stream key
 6. Watch on desktop browser or any other device
 
 #### Scenario 3: Multiple Viewers
 1. Run server on one device
-2. Multiple people on same WiFi open: `http://SERVER_IP:8000`
+2. Multiple people on same WiFi open: `http://SERVER_IP:9000`
 3. Everyone can watch all live streams
 4. No limit on viewers (depends on server hardware)
 
@@ -554,8 +554,8 @@ sudo ufw allow 8554/udp  # SRT
 4. Open PowerShell/Terminal in project folder
 5. Run: `npm install` (wait for completion)
 6. Run: `npm start`
-7. Access: `http://localhost:8000` on same computer
-8. Access: `http://YOUR_IP:8000` from other devices
+7. Access: `http://localhost:9000` on same computer
+8. Access: `http://YOUR_IP:9000` from other devices
 
 ### ⚠️ Important Network Notes
 
@@ -627,7 +627,7 @@ sudo systemctl start stream-server
 
 ### Stream Not Connecting
 
-1. **Check Firewall**: Allow ports 1935, 8000, 8081 (TCP) and 8554 (UDP for SRT)
+1. **Check Firewall**: Allow ports 2935, 9000, 9081 (TCP) and 9554 (UDP for SRT)
 2. **Verify Stream Key**: Ensure it exists in the web interface
 3. **Check FFmpeg**: Ensure FFmpeg is installed and in PATH
 
@@ -722,7 +722,7 @@ socket.on('streamStats', (data) => {
 
 ### OBS Studio
 ```
-Server: rtmp://YOUR_IP:1935/live
+Server: rtmp://YOUR_IP:2935/live
 Key: [your-stream-key]
 ```
 
@@ -733,7 +733,7 @@ Same as OBS Studio - use Custom RTMP Server
 ```bash
 ffmpeg -re -i input.mp4 -c:v libx264 -preset veryfast \
   -tune zerolatency -c:a aac -b:a 128k -f flv \
-  rtmp://YOUR_IP:1935/live/YOUR_STREAM_KEY
+  rtmp://YOUR_IP:2935/live/YOUR_STREAM_KEY
 ```
 
 ### VLC Media Player
@@ -778,7 +778,7 @@ Address: rtmp://YOUR_IP:1935/live/YOUR_STREAM_KEY
 - ✅ 0 npm audit vulnerabilities
 
 **Network posture:**
-- Designed for LAN / Cloudflare Tunnel. Do not expose RTMP port 1935 to the open internet without a firewall rule.
+- Designed for LAN / Cloudflare Tunnel. Do not expose RTMP port 2935 to the open internet without a firewall rule.
 - RTMP is unencrypted by default. Use Cloudflare Tunnel or an RTMPS proxy for public deployments.
 
 ## 📊 API Reference
@@ -839,7 +839,7 @@ local-stream-server/
 │   └── api.test.js        # 24 API integration tests
 ├── go-media-server/       # Go media server — SRT + WebSocket + WebRTC + RTMP
 │   ├── main.go
-│   ├── config.yml         # RTMP:1935, SRT:8554, API:8084
+│   ├── config.yml         # RTMP:2936, SRT:9554, API:9084
 │   └── pkg/
 │       ├── rtmp/          # yutopp/go-rtmp handler + tests
 │       ├── srt/           # datarhei/gosrt — real SRT with MPEG-TS demux + tests

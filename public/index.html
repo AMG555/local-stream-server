@@ -114,11 +114,11 @@
                     <div class="sidebar-title">Server Info</div>
                     <div class="info-item">
                         <small>RTMP Port</small>
-                        <div id="rtmpPort">1935</div>
+                        <div id="rtmpPort">2935</div>
                     </div>
                     <div class="info-item">
                         <small>SRT Port</small>
-                        <div id="srtPort">8554</div>
+                        <div id="srtPort">9554</div>
                     </div>
                     <div class="info-item">
                         <small>Active Streams</small>
@@ -419,7 +419,7 @@
                             </button>
                         </div>
                         <small style="color: var(--text-secondary); display: block; margin-top: 5px;">
-                            Latency: ~120ms · Port 8554 · Go media server
+                            Latency: ~120ms · Port 9554 · Go media server
                         </small>
                     </div>
                     <div class="detail-section">
@@ -453,7 +453,7 @@
                             <hr style="margin:10px 0; border-color:rgba(255,255,255,0.1);">
                             <strong>FFmpeg</strong>
                             <div style="margin-top:6px; font-family:monospace; font-size:11px; background:rgba(0,0,0,0.25); padding:8px; border-radius:4px; word-break:break-all;" id="srtFfmpegCmd">
-                                ffmpeg -re -i input.mp4 -c copy -f mpegts "srt://IP:8554?streamid=key=STREAMKEY&latency=120000"
+                                ffmpeg -re -i input.mp4 -c copy -f mpegts "srt://IP:9554?streamid=key=STREAMKEY&latency=120000"
                             </div>
                         </div>
                     </div>
@@ -487,7 +487,7 @@
                     </div>
                     <div class="info-row">
                         <span>SRT Port:</span>
-                        <strong id="infoSrtPort">8554</strong>
+                        <strong id="infoSrtPort">9554</strong>
                     </div>
                     <div class="info-row">
                         <span>HTTP Port:</span>
@@ -540,7 +540,7 @@
                 <div id="goServerOffline" style="display:none; position:absolute; inset:0; background:rgba(0,0,0,0.82); display:none; align-items:center; justify-content:center; flex-direction:column; gap:12px; border-radius:4px; z-index:10;">
                     <i class="fas fa-server" style="font-size:2.4rem; color:#888;"></i>
                     <p style="color:#ccc; font-size:0.95rem; text-align:center; margin:0; max-width:320px;">
-                        Go media server not running on port 8084.<br>
+                        Go media server not running on port 9084.<br>
                         <strong style="color:#fff;">Start it with:</strong>
                     </p>
                     <code style="background:#111; color:#7cf; padding:6px 14px; border-radius:4px; font-size:0.82rem;">cd go-media-server &amp;&amp; go run .</code>

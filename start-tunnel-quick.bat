@@ -29,7 +29,7 @@ echo ========================================
 echo.
 
 REM Start tunnel - this will show the public URL
-npx cloudflared tunnel --url http://localhost:8000
+npx cloudflared tunnel --url http://localhost:9000
 
 REM If tunnel closes, keep window open
 pause

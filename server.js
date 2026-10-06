@@ -195,17 +195,17 @@ function getLocalIP() {
 }
 
 const LOCAL_IP = getLocalIP();
-const HTTP_PORT = 8000;
-const RTMP_PORT = 1935;
-const MEDIA_PORT = 8081;
-const GO_RTMP_PORT = 1936; // Go media server RTMP port (for WebSocket/WebRTC fan-out)
+const HTTP_PORT = 9000;
+const RTMP_PORT = 2935;
+const MEDIA_PORT = 9081;
+const GO_RTMP_PORT = 2936; // Go media server RTMP port (for WebSocket/WebRTC fan-out)
 
 // Node-Media-Server configuration
 // logType 0 = silent — NMS v2.7.4 has a harmless internal error
 // ("getFFmpegVersion is not a function") that pollutes the console.
 // We handle all logging ourselves, so suppress NMS output entirely.
 const config = {
-  logType: 0,
+  logType: 3, // Enable debug logging to see RTMP connections
   rtmp: {
     port: RTMP_PORT,
     chunk_size: 60000,
@@ -237,7 +237,7 @@ const config = {
     ]
   } : undefined,
   // Relay every incoming RTMP stream to the Go media server so WebSocket
-  // and WebRTC viewers (port 8084) get the stream data.
+  // and WebRTC viewers (port 9084) get the stream data.
   relay: {
     ffmpeg: FFMPEG_PATH || 'ffmpeg',
     tasks: [
@@ -457,7 +457,7 @@ app.delete('/api/stream/:key', requireAPIKey, deleteStreamLimiter, (req, res) =>
 });
 
 // Get server info (public — does NOT expose ffmpegPath to avoid leaking disk layout)
-const SRT_PORT = 8554; // must match go-media-server/config.yml srt.port
+const SRT_PORT = 9554; // must match go-media-server/config.yml srt.port
 
 app.get('/api/info', (req, res) => {
   res.json({

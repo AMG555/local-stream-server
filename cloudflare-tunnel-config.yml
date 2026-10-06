@@ -8,17 +8,17 @@ tunnel: local-stream-server
 ingress:
   # Web interface - accessible via HTTPS
   - hostname: stream.your-domain.com
-    service: http://localhost:8000
+    service: http://localhost:9000
     originRequest:
       noTLSVerify: true
 
   # RTMP server - accessible via TCP for OBS
   - hostname: rtmp.your-domain.com
-    service: tcp://localhost:1935
+    service: tcp://localhost:2935
 
-  # HLS / media server (port 8081)
+  # HLS / media server (port 9081)
   - hostname: media.your-domain.com
-    service: http://localhost:8081
+    service: http://localhost:9081
     originRequest:
       noTLSVerify: true
 
