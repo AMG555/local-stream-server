@@ -5,6 +5,27 @@ All notable changes to Local Stream Server will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - Security, Performance, and Concurrency Hardening
+
+### 🔧 Fixed
+
+- **Stored XSS in notification display** — `showNotification()` now constructs DOM elements with `textContent` instead of interpolating strings into `innerHTML`.
+- **API key self-revocation bypass** — `DELETE /api/keys/id/:id` and `DELETE /api/keys/:key` now correctly check the caller key even if sent without the `Bearer ` prefix.
+- **Node-Media-Server v2.7.4 `getFFmpegVersion` startup crash** — polyfilled missing `getFFmpegVersion` and `getFFmpegUrl` exports in `node_core_utils` before module load; restored RTMP-to-Go fan-out relay.
+- **WebSocket concurrent write panic** — added per-connection `sync.Mutex` around gorilla/websocket `WriteMessage()` in Go FLV streaming to prevent race conditions between audio and video frames.
+- **Live stream quality badge update failure** — cards now use `data-stream-key` and dedicated `.quality-label` elements instead of `card.getAttribute('onclick')` and writing text into the 8px `.quality-dot`.
+- **Windows FFmpeg recording finalization** — FFmpeg child process is now spawned with stdin pipe; stopping recording sends `'q'` over stdin to cleanly write the MP4 trailer and moov atom before falling back to `SIGINT`.
+- **Documentation port drift** — synchronized all guides and `cloudflare-tunnel-config.yml` with active ports (HTTP: 9000, RTMP: 2935, Go Relay: 2936, Media HLS: 9081, Go WebSocket/WebRTC: 9084, SRT: 9554).
+
+### ⚡ Performance
+
+- **Synchronous disk write bottleneck** — `validateAPIKey()` throttles `lastUsed` disk saves to at most once per 60 seconds instead of calling `fs.writeFileSync()` on every single validated request.
+
+### 🧪 Tests & Tooling
+
+- Made `npm run test:go` cross-platform (runs on standard Windows environments without CGO); added `npm run test:go:race` for race detection.
+- Added 6 new unit tests for self-revocation checks, `validateAPIKey` in-memory updates, and `isValidUUID` type safety. Total: 73 Node.js tests, 46 Go tests, all passing.
+
 ## [1.6.0] - WebRTC ICE fix + audio transcoder hardening
 
 ### 🔧 Fixed

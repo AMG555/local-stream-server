@@ -56,7 +56,7 @@ start-tunnel-quick.bat
 
 **Mac/Linux:**
 ```bash
-npx cloudflared tunnel --url http://localhost:8000
+npx cloudflared tunnel --url http://localhost:9000
 ```
 
 ### Step 3: Copy the URL
@@ -161,16 +161,20 @@ credentials-file: /path/to/.cloudflared/tunnel-credentials.json
 ingress:
   # Web interface
   - hostname: stream.yourdomain.com  # Or use trycloudflare.com
-    service: http://localhost:8000
+    service: http://localhost:9000
   
   # RTMP server (for OBS)
   - hostname: rtmp.yourdomain.com
-    service: tcp://localhost:1935
+    service: tcp://localhost:2935
   
-  # Media server (HLS) - Changed to 8081 to avoid port conflicts
+  # Media server (HLS)
   - hostname: media.yourdomain.com
-    service: http://localhost:8081
+    service: http://localhost:9081
   
+  # Go media server (WebSocket MSE / WebRTC)
+  - hostname: ws.yourdomain.com
+    service: http://localhost:9084
+
   - service: http_status:404
 ```
 
@@ -431,7 +435,7 @@ Spread load across multiple servers:
 ```yaml
 ingress:
   - hostname: stream.yourdomain.com
-    service: http://localhost:8000
+    service: http://localhost:9000
     originRequest:
       connectTimeout: 10s
       noHappyEyeballs: true

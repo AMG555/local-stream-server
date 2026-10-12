@@ -37,17 +37,17 @@ npm run go:run     # go run . inside go-media-server/
 
 ```yaml
 rtmp:
-  port: 1935        # RTMP ingest (matches Node.js)
+  port: 2936        # RTMP relay port (Node.js relays from ingest port 2935)
   chunk_size: 4096
   gop_cache: true
   ping_timeout: 60
 
 srt:
-  port: 8554        # UDP (skeleton only)
+  port: 9554        # Ultra-low latency SRT ingest (UDP)
   latency: 120      # ms
 
 api:
-  port: 8084        # HTTP: /streams, /health, /ws, /webrtc/*
+  port: 9084        # HTTP / WebSocket (/ws) / WebRTC (/webrtc/*)
   host: "0.0.0.0"
 ```
 
@@ -56,22 +56,18 @@ api:
 ```
 OBS/Encoder
     │
-    ├─ RTMP (:1935) ─────► Go RTMP Server
-    │                           │
-    │                           ├─ BroadcastVideo/Audio
-    │                           │
-    │                  ┌────────┴──────────┐
-    │                  │                   │
-    │            WebSocket              WebRTC
-    │         (:8084/ws)          (:8084/webrtc/*)
-    │               │                    │
-    │           Browser (MSE)      Browser (native)
-    │           ~300ms latency      ~50ms latency
+    ├─ RTMP (:2935) ──► Node.js NMS Ingest
+    │                        │
+    │                        ├─ Relay (:2936) ──► Go Media Server
+    │                        │                         │
+    │                        │                         ├─ WebSocket (:9084/ws)
+    │                        │                         └─ WebRTC (:9084/webrtc/*)
+    │                        │
+    │                        └─ Transcode ──► HLS (:9081)
     │
-    └─ REST API (:8084) ──► Node.js dashboard + health
-
-Node.js server (port 1935, 8000, 8081) continues to handle
-HLS transcoding via FFmpeg for the standard ~2s latency path.
+    ├─ SRT (:9554) ───► Go SRT Server ──► WebSocket / WebRTC
+    │
+    └─ Dashboard (:9000) ──► Web UI
 ```
 
 ## Latency Comparison
@@ -93,16 +89,14 @@ npm start
 cd go-media-server && .\go-media-server.exe
 ```
 
-The Node.js and Go servers share the same RTMP port (1935).
-**Do not run both simultaneously unless you change one of the RTMP ports.**
-The intended split: Node.js handles RTMP + HLS; the Go server handles SRT + WebSocket + WebRTC.
-In that split, set Go's RTMP port to something unused (e.g. 1936) and route OBS to Node.js on 1935.
+Node.js runs RTMP ingest on port 2935, and relays active streams to the Go server on port 2936.
+The Go server distributes live streams via WebSocket MSE and WebRTC on port 9084, and accepts direct SRT ingest on port 9554.
 
-**SRT ingest (Go server only, port 8554):**
+**SRT ingest (Go server, port 9554):**
 ```bash
-# OBS: Settings → Stream → Service: Custom, Server: srt://YOUR_IP:8554, Stream Key: <your-key>
-# FFmpeg: ffmpeg -re -i input.mp4 -f mpegts srt://YOUR_IP:8554?streamid=key=YOUR_KEY
-# vMix: Add Input → Stream/External → SRT → srt://YOUR_IP:8554 with streamid key=YOUR_KEY
+# OBS: Settings → Stream → Service: Custom, Server: srt://YOUR_IP:9554, Stream Key: <your-key>
+# FFmpeg: ffmpeg -re -i input.mp4 -f mpegts srt://YOUR_IP:9554?streamid=key=YOUR_KEY
+# vMix: Add Input → Stream/External → SRT → srt://YOUR_IP:9554 with streamid key=YOUR_KEY
 ```
 
 StreamID formats supported:
