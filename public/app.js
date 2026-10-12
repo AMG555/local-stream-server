@@ -645,7 +645,7 @@ function renderLiveStreams(streams) {
                     <i class="fas fa-broadcast-tower"></i>
                     ${quality ? `<div class="quality-indicator quality-${quality.level}" style="position: absolute; bottom: 10px; right: 10px;">
                         <span class="quality-dot"></span>
-                        ${quality.label}
+                        <span class="quality-label">${escHtml(quality.label)}</span>
                     </div>` : ''}
                 </div>
                 <div class="stream-info">
@@ -824,13 +824,29 @@ function updateStreamStats(key, stats) {
     // Only update the quality badge on the specific stream card, not full innerHTML
     const streamCards = document.querySelectorAll('.stream-card');
     streamCards.forEach(card => {
-        const cardKey = card.getAttribute('onclick')?.match(/'([^']+)'/)?.[1];
+        const cardKey = card.dataset.streamKey;
         if (cardKey === key) {
             const quality = getStreamQuality(key);
-            const badge = card.querySelector('.quality-indicator');
-            if (badge && quality) {
-                badge.className = `quality-indicator quality-${quality.level}`;
-                badge.querySelector('span') && (badge.querySelector('span').textContent = quality.label);
+            let badge = card.querySelector('.quality-indicator');
+            if (quality) {
+                if (!badge) {
+                    const thumb = card.querySelector('.stream-thumbnail');
+                    if (thumb) {
+                        badge = document.createElement('div');
+                        badge.className = `quality-indicator quality-${quality.level}`;
+                        badge.style.cssText = 'position: absolute; bottom: 10px; right: 10px;';
+                        badge.innerHTML = `<span class="quality-dot"></span><span class="quality-label">${escHtml(quality.label)}</span>`;
+                        thumb.appendChild(badge);
+                    }
+                } else {
+                    badge.className = `quality-indicator quality-${quality.level}`;
+                    const labelEl = badge.querySelector('.quality-label');
+                    if (labelEl) {
+                        labelEl.textContent = quality.label;
+                    } else {
+                        badge.innerHTML = `<span class="quality-dot"></span><span class="quality-label">${escHtml(quality.label)}</span>`;
+                    }
+                }
             }
         }
     });
@@ -1283,12 +1299,16 @@ function showNotification(message, type = 'info') {
         'error': 'exclamation-circle',
         'warning': 'exclamation-triangle',
         'info': 'info-circle'
-    }[type];
+    }[type] || 'info-circle';
     
-    notification.innerHTML = `
-        <i class="fas fa-${icon}"></i>
-        <span>${message}</span>
-    `;
+    const iconEl = document.createElement('i');
+    iconEl.className = `fas fa-${icon}`;
+    
+    const spanEl = document.createElement('span');
+    spanEl.textContent = message;
+    
+    notification.appendChild(iconEl);
+    notification.appendChild(spanEl);
     
     document.body.appendChild(notification);
     
@@ -1520,8 +1540,8 @@ let flvPlayerInstance = null; // flv.js player instance
  */
 async function _startWebSocketPlayer(streamKey) {
     const goPort = 9084;
-    // flv.js WebSocket URL — Go server must send FLV over this socket
-    const wsUrl = `ws://${window.location.hostname}:${goPort}/ws?key=${encodeURIComponent(streamKey)}`;
+    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProto}//${window.location.hostname}:${goPort}/ws?key=${encodeURIComponent(streamKey)}`;
 
     // Reuse the HLS <video> element — hide canvas (not needed with flv.js)
     const wsCanvas = document.getElementById('wsCanvas');

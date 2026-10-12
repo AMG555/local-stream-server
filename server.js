@@ -1,3 +1,14 @@
+// Polyfill missing utils in node-media-server v2.7.4 before submodules load
+try {
+  const nodeCoreUtils = require('node-media-server/src/node_core_utils');
+  if (typeof nodeCoreUtils.getFFmpegVersion !== 'function') {
+    nodeCoreUtils.getFFmpegVersion = async function() { return '5.0.0'; };
+  }
+  if (typeof nodeCoreUtils.getFFmpegUrl !== 'function') {
+    nodeCoreUtils.getFFmpegUrl = function() { return 'https://ffmpeg.org/download.html'; };
+  }
+} catch (_) {}
+
 const NodeMediaServer = require('node-media-server');
 const express = require('express');
 const http = require('http');
@@ -166,17 +177,23 @@ if (listAPIKeys().length === 0) {
 
 // Always print all API keys on startup so the key is never lost
 {
-  const API_KEYS_FILE = path.join(__dirname, 'api-keys.json');
-  const keys = JSON.parse(fs.readFileSync(API_KEYS_FILE, 'utf8'));
-  console.log('\n╔══════════════════════════════════════════════════════╗');
-  console.log('║  🔑 API Keys                                         ║');
-  console.log('║                                                      ║');
-  keys.forEach(k => {
-    console.log(`║  Name: ${k.name.padEnd(44)}║`);
-    console.log(`║  ${k.key}  ║`);
-    console.log('║                                                      ║');
-  });
-  console.log('╚══════════════════════════════════════════════════════╝\n');
+  const API_KEYS_FILE = process.env.API_KEYS_FILE || path.join(__dirname, 'api-keys.json');
+  if (fs.existsSync(API_KEYS_FILE)) {
+    try {
+      const keys = JSON.parse(fs.readFileSync(API_KEYS_FILE, 'utf8'));
+      if (Array.isArray(keys)) {
+        console.log('\n╔══════════════════════════════════════════════════════╗');
+        console.log('║  🔑 API Keys                                         ║');
+        console.log('║                                                      ║');
+        keys.forEach(k => {
+          console.log(`║  Name: ${String(k.name || '').padEnd(44)}║`);
+          console.log(`║  ${k.key}  ║`);
+          console.log('║                                                      ║');
+        });
+        console.log('╚══════════════════════════════════════════════════════╝\n');
+      }
+    } catch (_) {}
+  }
 }
 
 // isValidUUID, sanitizeTitle, redactStreamKey, safeArgs imported from helpers.js
@@ -238,8 +255,9 @@ const config = {
   } : undefined,
   // Relay every incoming RTMP stream to the Go media server so WebSocket
   // and WebRTC viewers (port 9084) get the stream data.
-  relay: {
-    ffmpeg: FFMPEG_PATH || 'ffmpeg',
+  // Polyfilled below so getFFmpegVersion bug in NMS 2.7.4 does not crash
+  relay: FFMPEG_PATH ? {
+    ffmpeg: FFMPEG_PATH,
     tasks: [
       {
         mode: 'push',
@@ -247,7 +265,7 @@ const config = {
         app: 'live',
       }
     ]
-  }
+  } : undefined
 };
 
 const nms = new NodeMediaServer(config);
@@ -336,7 +354,12 @@ nms.on('donePublish', (id, StreamPath, args) => {
   // Stop any active recording for this stream
   const recording = streamRecordings.get(streamKey);
   if (recording) {
-    recording.process.kill('SIGINT');
+    if (recording.process.stdin && !recording.process.stdin.destroyed) {
+      try { recording.process.stdin.write('q'); } catch (_) {}
+    }
+    setTimeout(() => {
+      try { recording.process.kill('SIGINT'); } catch (_) {}
+    }, 2000);
     streamRecordings.delete(streamKey);
   }
 
@@ -548,7 +571,8 @@ app.delete('/api/keys/id/:id', requireAPIKey, (req, res) => {
   const { id } = req.params;
   // Prevent revoking self: look up the key for this id and compare to caller
   const authHeader = req.headers.authorization || '';
-  const callerKey = (authHeader.match(/^Bearer\s+(.+)$/i) || [])[1];
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  const callerKey = match ? match[1] : authHeader.trim();
   // listAPIKeys gives us previews; we use revokeAPIKeyById which internally calls revokeAPIKey
   // but first check it's not the caller's own key
   const keys = listAPIKeys();
@@ -567,7 +591,8 @@ app.delete('/api/keys/:key', requireAPIKey, (req, res) => {
   const { key } = req.params;
   // Prevent revoking self (would lock out)
   const authHeader = req.headers.authorization || '';
-  const callerKey = (authHeader.match(/^Bearer\s+(.+)$/i) || [])[1];
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  const callerKey = match ? match[1] : authHeader.trim();
   if (key === callerKey) {
     return res.status(400).json({ error: 'Cannot revoke the key you are using' });
   }
@@ -610,7 +635,7 @@ app.post('/api/stream/:key/record/start', requireAPIKey, (req, res) => {
     '-c', 'copy',
     '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
     filePath
-  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+  ], { stdio: ['pipe', 'pipe', 'pipe'] });
 
   ffmpegProc.stderr.on('data', (data) => {
     // Silent — not needed for recording confirmation
@@ -651,7 +676,14 @@ app.post('/api/stream/:key/record/stop', requireAPIKey, (req, res) => {
     return res.status(404).json({ error: 'No active recording for this stream' });
   }
 
-  recording.process.kill('SIGINT'); // Graceful stop — writes MP4 moov atom
+  // Graceful stop: send 'q' to FFmpeg stdin to finalize MP4 cleanly
+  if (recording.process.stdin && !recording.process.stdin.destroyed) {
+    try { recording.process.stdin.write('q'); } catch (_) {}
+  }
+  setTimeout(() => {
+    try { recording.process.kill('SIGINT'); } catch (_) {}
+  }, 2000);
+
   res.json({ success: true, file: path.basename(recording.filePath) });
 });
 

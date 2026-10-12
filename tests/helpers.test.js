@@ -38,6 +38,13 @@ describe('isValidUUID', () => {
     expect(isValidUUID('12345678901234567890123456789012')).toBe(false);
   });
 
+  it('rejects non-string types', () => {
+    expect(isValidUUID(null)).toBe(false);
+    expect(isValidUUID(undefined)).toBe(false);
+    expect(isValidUUID(123)).toBe(false);
+    expect(isValidUUID({})).toBe(false);
+  });
+
   it('is case-insensitive', () => {
     expect(isValidUUID('550E8400-E29B-41D4-A716-446655440000')).toBe(true);
   });

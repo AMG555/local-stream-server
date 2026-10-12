@@ -124,9 +124,15 @@ function buildApp() {
 
   app.delete('/api/keys/id/:id', auth.requireAPIKey, (req, res) => {
     const { id } = req.params;
+    const authHeader = req.headers.authorization || '';
+    const match = authHeader.match(/^Bearer\s+(.+)$/i);
+    const callerKey = match ? match[1] : authHeader.trim();
     const keys = auth.listAPIKeys();
     const target = keys.find((k) => k.id === id);
     if (!target) return res.status(404).json({ error: 'Key not found' });
+    if (callerKey && callerKey.startsWith(target.keyPreview.replace('...', ''))) {
+      return res.status(400).json({ error: 'Cannot revoke the key you are using' });
+    }
     const ok = auth.revokeAPIKeyById(id);
     if (!ok) return res.status(404).json({ error: 'Key not found' });
     res.json({ success: true });
@@ -434,5 +440,29 @@ describe('DELETE /api/keys/id/:id', () => {
       .delete('/api/keys/id/00000000-0000-4000-8000-000000000000')
       .set('Authorization', `Bearer ${apiKey}`);
     expect(res.status).toBe(404);
+  });
+
+  it('rejects revoking own key when using Bearer prefix', async () => {
+    const list = await request.get('/api/keys').set('Authorization', `Bearer ${apiKey}`);
+    const myKeyEntry = list.body.keys.find((k) => apiKey.startsWith(k.keyPreview.replace('...', '')));
+    expect(myKeyEntry).toBeDefined();
+
+    const res = await request
+      .delete(`/api/keys/id/${myKeyEntry.id}`)
+      .set('Authorization', `Bearer ${apiKey}`);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Cannot revoke the key you are using/i);
+  });
+
+  it('rejects revoking own key when Authorization header lacks Bearer prefix', async () => {
+    const list = await request.get('/api/keys').set('Authorization', apiKey);
+    const myKeyEntry = list.body.keys.find((k) => apiKey.startsWith(k.keyPreview.replace('...', '')));
+    expect(myKeyEntry).toBeDefined();
+
+    const res = await request
+      .delete(`/api/keys/id/${myKeyEntry.id}`)
+      .set('Authorization', apiKey);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Cannot revoke the key you are using/i);
   });
 });

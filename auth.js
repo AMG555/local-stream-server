@@ -106,6 +106,9 @@ function revokeAPIKeyById(id) {
   return revokeAPIKey(key);
 }
 
+let lastDiskSaveTime = 0;
+const DISK_SAVE_INTERVAL_MS = 60000;
+
 /**
  * Validate API key
  * @param {string} key - The API key to validate
@@ -123,7 +126,10 @@ function validateAPIKey(key) {
   
   // Update last used timestamp
   entry.lastUsed = Date.now();
-  saveAPIKeys();
+  if (Date.now() - lastDiskSaveTime > DISK_SAVE_INTERVAL_MS) {
+    lastDiskSaveTime = Date.now();
+    saveAPIKeys();
+  }
   
   return true;
 }
@@ -178,5 +184,6 @@ module.exports = {
   generateAPIKey,
   revokeAPIKey,
   revokeAPIKeyById,
-  listAPIKeys
+  listAPIKeys,
+  validateAPIKey
 };

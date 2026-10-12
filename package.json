@@ -11,7 +11,8 @@
     "go:run": "cd go-media-server && go run .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:go": "cd go-media-server && go test ./... -race -count=1",
+    "test:go": "cd go-media-server && go test ./... -count=1",
+    "test:go:race": "cd go-media-server && go test ./... -race -count=1",
     "test:go:bench": "cd go-media-server && go test -bench=. -benchmem ./pkg/stream/",
     "test:all": "npm test && npm run test:go"
   },

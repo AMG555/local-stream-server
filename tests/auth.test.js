@@ -193,3 +193,33 @@ describe('listAPIKeys', () => {
     expect(found).toBeUndefined();
   });
 });
+
+// ── validateAPIKey ────────────────────────────────────────────────────────────
+
+describe('validateAPIKey', () => {
+  it('returns true for a valid key and updates in-memory lastUsed', () => {
+    const auth = freshAuth();
+    const { key } = auth.generateAPIKey('ValidKey');
+    const before = Date.now();
+
+    expect(auth.validateAPIKey(key)).toBe(true);
+
+    const keys = auth.listAPIKeys();
+    const entry = keys.find((k) => key.startsWith(k.keyPreview.replace('...', '')));
+    expect(entry.lastUsed).toBeGreaterThanOrEqual(before);
+  });
+
+  it('returns false for invalid or unknown key', () => {
+    const auth = freshAuth();
+    expect(auth.validateAPIKey('sk_invalid_unknown_key')).toBe(false);
+  });
+
+  it('rejects non-string or falsy input', () => {
+    const auth = freshAuth();
+    expect(auth.validateAPIKey('')).toBe(false);
+    expect(auth.validateAPIKey(null)).toBe(false);
+    expect(auth.validateAPIKey(undefined)).toBe(false);
+    expect(auth.validateAPIKey(123)).toBe(false);
+    expect(auth.validateAPIKey({})).toBe(false);
+  });
+});
