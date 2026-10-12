@@ -138,6 +138,63 @@ function buildApp() {
     res.json({ success: true });
   });
 
+  // ── DELETE /api/keys/:key ────────────────────────────────────────────────
+  app.delete('/api/keys/:key', auth.requireAPIKey, (req, res) => {
+    const { key } = req.params;
+    const authHeader = req.headers.authorization || '';
+    const match = authHeader.match(/^Bearer\s+(.+)$/i);
+    const callerKey = match ? match[1] : authHeader.trim();
+    if (key === callerKey) {
+      return res.status(400).json({ error: 'Cannot revoke the key you are using' });
+    }
+    const ok = auth.revokeAPIKey(key);
+    if (!ok) return res.status(404).json({ error: 'Key not found' });
+    res.json({ success: true });
+  });
+
+  // ── GET /health/deep ─────────────────────────────────────────────────────
+  app.get('/health/deep', auth.requireAPIKey, (req, res) => {
+    res.json({
+      status: 'ok',
+      uptime: process.uptime(),
+      activeStreams: activeStreams.size,
+      totalKeys: streamKeys.size,
+      checks: {
+        ffmpeg: { ok: false, detail: 'not found' },
+        disk: { ok: true, detail: 'statfs ok' },
+        rtmp: { ok: true, port: 2935 }
+      },
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  // ── GET /api/streams/export ──────────────────────────────────────────────
+  app.get('/api/streams/export', auth.requireAPIKey, (req, res) => {
+    const format = (req.query.format || 'json').toLowerCase();
+    const streams = Array.from(streamKeys.values()).map(s => ({
+      key: s.key,
+      title: s.title,
+      createdAt: s.createdAt,
+      isLive: s.isLive,
+      startTime: s.startTime || null,
+      endTime: s.endTime || null,
+      durationSeconds: s.startTime && s.endTime ? Math.floor((s.endTime - s.startTime) / 1000) : null
+    }));
+
+    if (format === 'csv') {
+      const header = 'key,title,createdAt,isLive,startTime,endTime,durationSeconds\n';
+      const rows = streams.map(s =>
+        [s.key, `"${s.title.replace(/"/g, '""')}"`, s.createdAt, s.isLive, s.startTime || '', s.endTime || '', s.durationSeconds || ''].join(',')
+      ).join('\n');
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename="streams-export.csv"');
+      return res.send(header + rows);
+    }
+
+    res.setHeader('Content-Disposition', 'attachment; filename="streams-export.json"');
+    res.json({ exportedAt: new Date().toISOString(), streams });
+  });
+
   return { app, streamKeys, activeStreams };
 }
 
@@ -464,5 +521,86 @@ describe('DELETE /api/keys/id/:id', () => {
       .set('Authorization', apiKey);
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/Cannot revoke the key you are using/i);
+  });
+});
+
+// ── DELETE /api/keys/:key ───────────────────────────────────────────────────
+
+describe('DELETE /api/keys/:key', () => {
+  it('revokes an API key by raw value', async () => {
+    const create = await request
+      .post('/api/keys')
+      .set('Authorization', `Bearer ${apiKey}`)
+      .send({ name: 'RawKeyToRevoke' });
+
+    const rawKey = create.body.key;
+
+    const del = await request
+      .delete(`/api/keys/${rawKey}`)
+      .set('Authorization', `Bearer ${apiKey}`);
+    expect(del.status).toBe(200);
+    expect(del.body.success).toBe(true);
+  });
+
+  it('rejects revoking own key directly by value', async () => {
+    const res = await request
+      .delete(`/api/keys/${apiKey}`)
+      .set('Authorization', `Bearer ${apiKey}`);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Cannot revoke the key you are using/i);
+  });
+
+  it('returns 404 for unknown raw key', async () => {
+    const res = await request
+      .delete('/api/keys/sk_unknown_key_value_12345')
+      .set('Authorization', `Bearer ${apiKey}`);
+    expect(res.status).toBe(404);
+  });
+});
+
+// ── GET /health/deep ────────────────────────────────────────────────────────
+
+describe('GET /health/deep', () => {
+  it('rejects unauthenticated request', async () => {
+    const res = await request.get('/health/deep');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns deep health checks when authenticated', async () => {
+    const res = await request.get('/health/deep').set('Authorization', `Bearer ${apiKey}`);
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('ok');
+    expect(res.body.checks).toBeDefined();
+    expect(res.body.checks.rtmp).toBeDefined();
+    expect(res.body.timestamp).toBeDefined();
+  });
+});
+
+// ── GET /api/streams/export ─────────────────────────────────────────────────
+
+describe('GET /api/streams/export', () => {
+  it('rejects unauthenticated export request', async () => {
+    const res = await request.get('/api/streams/export');
+    expect(res.status).toBe(401);
+  });
+
+  it('exports streams in JSON format by default', async () => {
+    const res = await request
+      .get('/api/streams/export')
+      .set('Authorization', `Bearer ${apiKey}`);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-disposition']).toContain('streams-export.json');
+    expect(res.body.streams).toBeDefined();
+    expect(Array.isArray(res.body.streams)).toBe(true);
+  });
+
+  it('exports streams in CSV format when requested', async () => {
+    const res = await request
+      .get('/api/streams/export?format=csv')
+      .set('Authorization', `Bearer ${apiKey}`);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/csv');
+    expect(res.headers['content-disposition']).toContain('streams-export.csv');
+    expect(res.text).toContain('key,title,createdAt,isLive,startTime,endTime,durationSeconds');
   });
 });
