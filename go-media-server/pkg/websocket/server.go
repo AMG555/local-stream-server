@@ -69,14 +69,24 @@ func (s *Server) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Per-connection write mutex: gorilla/websocket disallows concurrent WriteMessage calls
+	var writeMu sync.Mutex
+	writeFLVTag := func(tag []byte) {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		if err := conn.WriteMessage(websocket.BinaryMessage, tag); err != nil {
+			log.Printf("WebSocket FLV write error: %v", err)
+		}
+	}
+
 	// Subscribe to media — use real encoder timestamps from MediaFrame.
 	unsubAudio := s.streamManager.SubscribeAudio(streamKey, func(frame stream.MediaFrame) {
 		tag := makeFLVTag(8, frame.Timestamp, frame.Data)
-		sendFLVTag(conn, tag)
+		writeFLVTag(tag)
 	})
 	unsubVideo := s.streamManager.SubscribeVideo(streamKey, func(frame stream.MediaFrame) {
 		tag := makeFLVTag(9, frame.Timestamp, frame.Data)
-		sendFLVTag(conn, tag)
+		writeFLVTag(tag)
 	})
 
 	// Deregister on disconnect

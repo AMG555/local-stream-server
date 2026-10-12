@@ -22,6 +22,12 @@ ingress:
     originRequest:
       noTLSVerify: true
 
+  # Go media server — WebSocket MSE & WebRTC (port 9084)
+  - hostname: ws.your-domain.com
+    service: http://localhost:9084
+    originRequest:
+      noTLSVerify: true
+
   # Catch-all rule (required by cloudflared)
   - service: http_status:404
 
